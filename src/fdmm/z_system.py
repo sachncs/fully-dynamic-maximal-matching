@@ -24,9 +24,9 @@ class ZSubgraphSystem:
         A: Vertices in set :math:`A`.
         B: Vertices in set :math:`B`.
         U: Vertices in set :math:`U`.
-        M: Edge set :math:`M \\subseteq E(G)`.
-        lambda_lists: For each :math:`u \\in U`, the list
-            :math:`\\Lambda(u) = N_G(u) \\cap (B \\cup U)`.
+        M: Edge set :math:`M \subseteq E(G)`.
+        lambda_lists: For each :math:`u \in U`, the list
+            :math:`\Lambda(u) = N_G(u) \cap (B \cup U)`.
         L_lists: For each :math:`a \in A`, the list
             :math:`L(a) = N_G(a) \cap U`.
     """
@@ -171,8 +171,8 @@ class MultiLevelSystem:
         levels: A list of :class:`ZSubgraphSystem` instances, one per level.
         A1: Partition of level-1 :math:`A` into :math:`A_1`.
         A2: Partition of level-1 :math:`A` into :math:`A_2`.
-        N1: Subset :math:`N_1 \\subseteq A_2 \\cup B`.
-        R1: :math:`R_1 = V \\setminus (A_1 \\cup N_1)`.
+        N1: Subset :math:`N_1 \subseteq A_2 \cup B`.
+        R1: :math:`R_1 = V \setminus (A_1 \cup N_1)`.
     """
 
     graph: DynamicGraph
@@ -187,19 +187,92 @@ class MultiLevelSystem:
         """Check multi-level invariant (I3).
 
         At most :math:`O(r / z)` vertices of :math:`A_1` are matched to
-        :math:`R_1`.  (The exact constant depends on parameters not fully
-        specified in the provided text.)
+        :math:`R_1`.  The exact constant is not provided in the paper excerpt,
+        so this method raises :class:`NotImplementedError` to prevent silent
+        false positives.
         """
-        # NOT DETERMINED: the paper states ``O(r / z)`` but does not give the
-        # explicit constant in the excerpt we have.
-        if not self.levels:
-            return True
-        level1 = self.levels[0]
-        count = 0
-        for a in self.A1:
-            for w in level1.neighbors_in_M(a):
-                if w in self.R1:
-                    count += 1
+        raise NotImplementedError(
+            "I3 check requires an exact constant not provided in the paper excerpt."
+        )
+
+
+def build_z_system(graph: DynamicGraph, z: int) -> ZSubgraphSystem:
+    r"""Build a :math:`z`-subgraph system from scratch.
+
+    This implements the two-step deterministic construction described in the
+    paper.  Step 1 (greedy maximal :math:`M` with degree cap :math:`z`) is
+    reproduced exactly.  Step 2 (promoting :math:`U`-vertices to :math:`B`
+    and edge-switching inside :math:`B`) is reconstructed from the high-level
+    description because the full pseudocode is truncated.
+
+    **Fidelity note:** Step 2 is marked APPROXIMATE.  When a :math:`U`-vertex
+    has at least :math:`z` neighbours in :math:`B` but all of those neighbours
+    are already saturated in :math:`M`, we cannot perform the exact edge-switch
+    without the missing switching rule, so the vertex remains in :math:`U`.
+    """
+    # Step 1: greedy maximal M with degree cap z.
+    M: set[Edge] = set()
+    deg_M: dict[Vertex, int] = {v: 0 for v in range(graph.n)}
+    edges = sorted(graph.edges())
+    for u, v in edges:
+        if deg_M[u] < z and deg_M[v] < z:
+            e = canonical_edge(u, v)
+            M.add(e)
+            deg_M[u] += 1
+            deg_M[v] += 1
+
+    S = {v for v in range(graph.n) if deg_M[v] == z}
+    U_set = {v for v in range(graph.n) if deg_M[v] < z}
+    A: set[Vertex] = set()
+    B: set[Vertex] = set()
+    for v in S:
+        has_neighbor_in_U = False
+        for w in graph.neighbors(v):
+            if canonical_edge(v, w) in M and w not in S:
+                has_neighbor_in_U = True
+                break
+        if has_neighbor_in_U:
+            B.add(v)
+        else:
+            A.add(v)
+
+    system = ZSubgraphSystem(graph=graph, z=z, A=A, B=B, U=U_set, M=M)
+    system.build_lambda_and_L()
+
+    # Step 2: process U-vertices to fix P1.
+    # NOTE: exact switching rule inside B is NOT PROVIDED in the paper excerpt.
+    # We approximate by only adding edges to B-neighbours that still have
+    # spare capacity in M.  If no such neighbour exists, the vertex stays in U.
+    for u in list(system.U):
+        neighbors_in_B = [w for w in graph.neighbors(u) if w in system.B]
+        if len(neighbors_in_B) >= z:
+            added = 0
+            for w in neighbors_in_B:
+                if added >= z:
                     break
-        # We cannot verify the bound without the exact constant.
-        return True  # pragma: no cover
+                if deg_M[w] < z:
+                    e = canonical_edge(u, w)
+                    if e not in M:
+                        M.add(e)
+                        deg_M[u] += 1
+                        deg_M[w] += 1
+                        added += 1
+                # If w is saturated, exact switching rule is unknown.
+            if deg_M[u] == z:
+                system.U.discard(u)
+                system.B.add(u)
+                # If a B-vertex loses all its M-edges to U, promote it to A.
+                for w in graph.neighbors(u):
+                    if w in system.B:
+                        has_M_to_U = False
+                        for x in graph.neighbors(w):
+                            if canonical_edge(w, x) in M and x in system.U:
+                                has_M_to_U = True
+                                break
+                        if not has_M_to_U:
+                            system.B.discard(w)
+                            system.A.add(w)
+
+    system.M = M
+    system.build_lambda_and_L()
+    return system

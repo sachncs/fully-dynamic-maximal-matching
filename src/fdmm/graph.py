@@ -20,6 +20,7 @@ class DynamicGraph:
     Attributes:
         n: Number of vertices (fixed at construction).
         adj: ``adj[v]`` is the set of neighbours of ``v``.
+        edge_count: Number of edges currently in the graph.
     """
 
     def __init__(self, n: int) -> None:
@@ -35,50 +36,61 @@ class DynamicGraph:
             raise ValueError(f"n must be non-negative, got {n}")
         self.n: int = n
         self.adj: list[set[Vertex]] = [set() for _ in range(n)]
-        self._edge_count: int = 0
+        self.edge_count: int = 0
 
-    def add_edge(self, u: Vertex, v: Vertex) -> None:
+    def add_edge(self, u: Vertex, v: Vertex, *, strict: bool = False) -> None:
         """Insert an undirected edge ``(u, v)``.
 
-        Duplicate insertions are silently ignored.
+        Duplicate insertions are silently ignored unless ``strict`` is ``True``.
 
         Args:
             u: One endpoint.
             v: The other endpoint.
+            strict: If ``True``, raise on self-loops or duplicate edges.
 
         Raises:
-            ValueError: If either endpoint is out of range.
+            ValueError: If either endpoint is out of range, or if ``strict``
+                is ``True`` and the edge is a self-loop or already exists.
         """
-        self._validate_vertex(u)
-        self._validate_vertex(v)
+        self.validate_vertex(u)
+        self.validate_vertex(v)
         if u == v:
-            # Self-loops are not part of the paper's model.
+            if strict:
+                raise ValueError("Self-loops are not allowed")
             return
         added = v not in self.adj[u]
-        if added:
-            self.adj[u].add(v)
-            self.adj[v].add(u)
-            self._edge_count += 1
+        if not added:
+            if strict:
+                raise ValueError(f"Edge ({u}, {v}) already exists")
+            return
+        self.adj[u].add(v)
+        self.adj[v].add(u)
+        self.edge_count += 1
 
-    def remove_edge(self, u: Vertex, v: Vertex) -> None:
+    def remove_edge(self, u: Vertex, v: Vertex, *, strict: bool = False) -> None:
         """Delete an undirected edge ``(u, v)``.
 
-        Deleting a non-existent edge is silently ignored.
+        Deleting a non-existent edge is silently ignored unless ``strict`` is ``True``.
 
         Args:
             u: One endpoint.
             v: The other endpoint.
+            strict: If ``True``, raise when the edge does not exist.
 
         Raises:
-            ValueError: If either endpoint is out of range.
+            ValueError: If either endpoint is out of range, or if ``strict``
+                is ``True`` and the edge does not exist.
         """
-        self._validate_vertex(u)
-        self._validate_vertex(v)
+        self.validate_vertex(u)
+        self.validate_vertex(v)
         removed = v in self.adj[u]
-        if removed:
-            self.adj[u].discard(v)
-            self.adj[v].discard(u)
-            self._edge_count -= 1
+        if not removed:
+            if strict:
+                raise ValueError(f"Edge ({u}, {v}) does not exist")
+            return
+        self.adj[u].discard(v)
+        self.adj[v].discard(u)
+        self.edge_count -= 1
 
     def has_edge(self, u: Vertex, v: Vertex) -> bool:
         """Return ``True`` iff the edge ``(u, v)`` exists.
@@ -90,8 +102,8 @@ class DynamicGraph:
         Raises:
             ValueError: If either endpoint is out of range.
         """
-        self._validate_vertex(u)
-        self._validate_vertex(v)
+        self.validate_vertex(u)
+        self.validate_vertex(v)
         return v in self.adj[u]
 
     def degree(self, v: Vertex) -> int:
@@ -103,7 +115,7 @@ class DynamicGraph:
         Raises:
             ValueError: If ``v`` is out of range.
         """
-        self._validate_vertex(v)
+        self.validate_vertex(v)
         return len(self.adj[v])
 
     def neighbors(self, v: Vertex) -> Iterator[Vertex]:
@@ -118,7 +130,7 @@ class DynamicGraph:
         Raises:
             ValueError: If ``v`` is out of range.
         """
-        self._validate_vertex(v)
+        self.validate_vertex(v)
         yield from self.adj[v]
 
     def edges(self) -> Iterator[Edge]:
@@ -134,9 +146,14 @@ class DynamicGraph:
 
     def num_edges(self) -> int:
         """Return the number of edges in the graph."""
-        return self._edge_count
+        return self.edge_count
 
-    def _validate_vertex(self, v: Vertex) -> None:
+    def validate_vertex(self, v: Vertex) -> None:
+        """Validate that ``v`` is in the range ``[0, n)``.
+
+        Raises:
+            ValueError: If ``v`` is out of range.
+        """
         if not (0 <= v < self.n):
             raise ValueError(f"Vertex {v} out of range [0, {self.n})")
 
@@ -145,4 +162,5 @@ class DynamicGraph:
         g = DynamicGraph(self.n)
         for u in range(self.n):
             g.adj[u] = set(self.adj[u])
+        g.edge_count = self.edge_count
         return g

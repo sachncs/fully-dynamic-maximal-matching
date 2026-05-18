@@ -1,7 +1,8 @@
 """Comprehensive unit tests for the FDMM reproduction.
 
-Tests cover core tensor shapes, forward-pass behaviour, loss computation,
-critical invariants, edge cases, property-based tests, and stress tests.
+Tests cover graph layer, edge colouring, :math:`z`-system construction and
+invariants, dynamic update maintenance, accounting counters, simulation
+utilities, and stress tests.
 """
 
 from __future__ import annotations
@@ -10,11 +11,15 @@ import random
 
 import pytest
 
+from fdmm.accounting import UpdateAccountant
 from fdmm.dynamic_matching import DynamicMaximalMatching
 from fdmm.edge_coloring import vizing_edge_color
 from fdmm.graph import DynamicGraph
+from fdmm.invariants import check_maximal_matching, check_z_system_invariants
+from fdmm.matching import build_partner_map, greedy_maximal_matching, partner_of
+from fdmm.simulation import random_update_sequence, replay_updates
 from fdmm.types import canonical_edge
-from fdmm.z_system import MultiLevelSystem, ZSubgraphSystem
+from fdmm.z_system import MultiLevelSystem, ZSubgraphSystem, build_z_system
 
 
 # ------------------------------------------------------------------
@@ -118,12 +123,12 @@ class TestDynamicGraph:
     def test_edges_no_duplicates(self) -> None:
         g = DynamicGraph(3)
         g.add_edge(0, 1)
-        g.add_edge(1, 0)  # same edge
+        g.add_edge(1, 0)
         assert len(list(g.edges())) == 1
 
     def test_remove_nonexistent_edge(self) -> None:
         g = DynamicGraph(3)
-        g.remove_edge(0, 1)  # should not raise
+        g.remove_edge(0, 1)
         assert g.num_edges() == 0
 
     def test_large_graph_degree(self) -> None:
@@ -148,6 +153,22 @@ class TestDynamicGraph:
         g = DynamicGraph(5)
         g.add_edge(0, 1)
         assert set(g.neighbors(2)) == set()
+
+    def test_strict_self_loop_raises(self) -> None:
+        g = DynamicGraph(3)
+        with pytest.raises(ValueError):
+            g.add_edge(0, 0, strict=True)
+
+    def test_strict_duplicate_raises(self) -> None:
+        g = DynamicGraph(3)
+        g.add_edge(0, 1)
+        with pytest.raises(ValueError):
+            g.add_edge(0, 1, strict=True)
+
+    def test_strict_missing_delete_raises(self) -> None:
+        g = DynamicGraph(3)
+        with pytest.raises(ValueError):
+            g.remove_edge(0, 1, strict=True)
 
 
 # ------------------------------------------------------------------
@@ -229,7 +250,6 @@ class TestEdgeColoring:
 
     def test_disconnected_components(self) -> None:
         g = DynamicGraph(6)
-        # Two triangles
         g.add_edge(0, 1)
         g.add_edge(1, 2)
         g.add_edge(2, 0)
@@ -266,6 +286,38 @@ class TestEdgeColoring:
         assert len(coloring) == g.num_edges()
         for e in g.edges():
             assert e in coloring
+
+
+# ------------------------------------------------------------------
+# Matching helpers
+# ------------------------------------------------------------------
+
+class TestMatchingHelpers:
+    """Tests for :mod:`fdmm.matching`."""
+
+    def test_greedy_maximal_matching(self) -> None:
+        g = DynamicGraph(4)
+        g.add_edge(0, 1)
+        g.add_edge(1, 2)
+        g.add_edge(2, 3)
+        m = greedy_maximal_matching(g)
+        assert check_maximal_matching(g, m)
+
+    def test_greedy_empty_graph(self) -> None:
+        g = DynamicGraph(3)
+        m = greedy_maximal_matching(g)
+        assert m == set()
+
+    def test_partner_of(self) -> None:
+        m = {(0, 1), (2, 3)}
+        assert partner_of(m, 0) == 1
+        assert partner_of(m, 3) == 2
+        assert partner_of(m, 5) is None
+
+    def test_build_partner_map(self) -> None:
+        m = {(0, 1), (2, 3)}
+        pmap = build_partner_map(m)
+        assert pmap == {0: 1, 1: 0, 2: 3, 3: 2}
 
 
 # ------------------------------------------------------------------
@@ -331,7 +383,6 @@ class TestZSubgraphSystem:
     def test_check_degree_bounds_empty(self) -> None:
         g = DynamicGraph(3)
         system = ZSubgraphSystem(graph=g, z=1)
-        # Put all vertices in U so that S is empty; degree bound on S vacuously holds
         system.A = set()
         system.B = set()
         system.U = {0, 1, 2}
@@ -345,7 +396,6 @@ class TestZSubgraphSystem:
         system.U = {3}
         system.B = {0, 1, 2}
         system.A = set()
-        # B has 3 neighbors in U, z=1 so 2z=2, violation
         assert not system.check_P1()
 
     def test_P2_violation(self) -> None:
@@ -355,7 +405,7 @@ class TestZSubgraphSystem:
         system.A = {0}
         system.B = set()
         system.U = {1, 2}
-        system.M = {(0, 2)}  # a in A matched to u in U, not in S
+        system.M = {(0, 2)}
         assert not system.check_P2()
 
     def test_all_invariants_on_empty(self) -> None:
@@ -378,6 +428,55 @@ class TestZSubgraphSystem:
         system.M = {(0, 1), (0, 2)}
         assert set(system.neighbors_in_M(0)) == {1, 2}
         assert set(system.neighbors_in_M(1)) == {0}
+
+
+# ------------------------------------------------------------------
+# z-System construction
+# ------------------------------------------------------------------
+
+class TestBuildZSystem:
+    """Tests for :func:`fdmm.z_system.build_z_system`."""
+
+    def test_build_on_empty_graph(self) -> None:
+        g = DynamicGraph(4)
+        system = build_z_system(g, z=1)
+        assert system.check_degree_bounds()
+        assert system.check_U_degree_in_U()
+
+    def test_build_on_path(self) -> None:
+        g = DynamicGraph(5)
+        for i in range(4):
+            g.add_edge(i, i + 1)
+        system = build_z_system(g, z=2)
+        assert system.check_degree_bounds()
+        assert system.check_P2()
+
+    def test_build_step_one_partition(self) -> None:
+        """Verify that A, B, U are defined from M, not from G-degree."""
+        g = DynamicGraph(4)
+        # star: vertex 0 has degree 3, leaves degree 1
+        for i in range(1, 4):
+            g.add_edge(0, i)
+        system = build_z_system(g, z=2)
+        # M is a greedy maximal matching with cap 2.
+        # It will contain (0,1) and (0,2).  Vertex 0 now has degree 2 in M -> S.
+        # Leaves 1 and 2 have degree 1 in M (< 2) -> U.
+        # Vertex 3 has degree 0 in M -> U.
+        assert 0 in system.S
+        assert system.degree_in_M(0) == 2
+        assert 1 in system.U or 1 in system.S
+        assert 2 in system.U or 2 in system.S
+        assert 3 in system.U
+
+    def test_build_invariants(self) -> None:
+        g = DynamicGraph(10)
+        for i in range(9):
+            g.add_edge(i, i + 1)
+        system = build_z_system(g, z=2)
+        assert system.check_degree_bounds()
+        assert system.check_P2()
+        assert system.check_lambda_lists()
+        assert system.check_L_lists()
 
 
 # ------------------------------------------------------------------
@@ -468,15 +567,15 @@ class TestDynamicMaximalMatching:
         assert stats["n"] == 5
         assert stats["m"] == 1
         assert stats["matching_size"] == 1
+        assert "total_updates" in stats
 
     def test_rebuild_triggered(self) -> None:
         algo = DynamicMaximalMatching(2, mode="basic")
         algo.phase_length = 3
         algo.insert_edge(0, 1)
         assert algo.update_count == 1
-        algo.insert_edge(0, 1)  # duplicate, still advances counter
+        algo.insert_edge(0, 1)
         assert algo.update_count == 2
-        # Next update triggers rebuild (2 -> 3 >= phase_length)
         algo.insert_edge(0, 1)
         assert algo.update_count == 0
         assert algo.is_maximal()
@@ -512,7 +611,7 @@ class TestDynamicMaximalMatching:
 
     def test_single_vertex_graph(self) -> None:
         algo = DynamicMaximalMatching(1, mode="basic")
-        algo.insert_edge(0, 0)  # self-loop ignored
+        algo.insert_edge(0, 0)
         assert algo.is_maximal()
         assert algo.matching_size() == 0
 
@@ -523,7 +622,6 @@ class TestDynamicMaximalMatching:
             for j in range(i + 1, n):
                 algo.insert_edge(i, j)
         assert algo.is_maximal()
-        # In a complete graph, maximal matching size is floor(n/2)
         assert algo.matching_size() == n // 2
 
     def test_complete_graph_then_remove_all(self) -> None:
@@ -533,7 +631,6 @@ class TestDynamicMaximalMatching:
         for u, v in edges:
             algo.insert_edge(u, v)
         assert algo.is_maximal()
-        # Remove all edges
         for u, v in edges:
             algo.delete_edge(u, v)
         assert algo.is_maximal()
@@ -621,7 +718,7 @@ class TestDynamicMaximalMatching:
 
     def test_delete_nonexistent_edge(self) -> None:
         algo = DynamicMaximalMatching(3, mode="basic")
-        algo.delete_edge(0, 1)  # should not raise
+        algo.delete_edge(0, 1)
         assert algo.is_maximal()
 
     def test_get_matching_returns_copy(self) -> None:
@@ -630,6 +727,94 @@ class TestDynamicMaximalMatching:
         m1 = algo.get_matching()
         m2 = algo.get_matching()
         assert m1 is not m2
+
+    def test_accounting_counters(self) -> None:
+        algo = DynamicMaximalMatching(4, mode="basic")
+        algo.insert_edge(0, 1)
+        algo.insert_edge(1, 2)
+        algo.delete_edge(0, 1)
+        stats = algo.statistics()
+        assert stats["total_updates"] == 3
+        assert stats["total_insertions"] == 2
+        assert stats["total_deletions"] == 1
+
+    def test_partner_method(self) -> None:
+        algo = DynamicMaximalMatching(4, mode="basic")
+        algo.insert_edge(0, 1)
+        assert algo.partner(0) == 1
+        assert algo.partner(1) == 0
+        assert algo.partner(2) is None
+
+    def test_phase_transition(self) -> None:
+        algo = DynamicMaximalMatching(4, mode="basic")
+        algo.phase_length = 5
+        for i in range(5):
+            algo.insert_edge(0, 1)
+        assert algo.update_count == 0  # rebuild triggered
+        assert algo.is_maximal()
+
+    def test_rematch_after_deleting_matching_edge(self) -> None:
+        algo = DynamicMaximalMatching(4, mode="basic")
+        algo.insert_edge(0, 1)
+        algo.insert_edge(2, 3)
+        assert algo.matching_size() == 2
+        algo.delete_edge(0, 1)
+        assert algo.is_maximal()
+        # The remaining edge (2,3) should still be in the matching
+        assert (2, 3) in algo.get_matching()
+
+    def test_multilevel_levels_exist(self) -> None:
+        algo = DynamicMaximalMatching(50, mode="multilevel")
+        assert algo.k >= 1
+        assert algo.system is not None
+
+    def test_rematch_u_no_phantom_edge_from_stale_list(self) -> None:
+        """Regression: a stale lambda list must not produce a phantom edge."""
+        from fdmm.types import canonical_edge
+        from fdmm.updates import rematch_u
+
+        algo = DynamicMaximalMatching(4, mode="basic")
+        algo.insert_edge(0, 1)
+        algo.insert_edge(0, 2)
+        algo.rebuild_basic()
+        # Place vertex 0 in U and ensure it is unmatched in M_star.
+        algo.system.U.add(0)
+        algo.system.A.discard(0)
+        algo.system.B.discard(0)
+        for e in list(algo.M_star):
+            if 0 in e:
+                algo.M_star.discard(e)
+                algo.matched_vertices.discard(e[0])
+                algo.matched_vertices.discard(e[1])
+        assert 0 not in algo.matched_vertices
+        # Inject a stale lambda list that claims 3 is a neighbour of 0.
+        algo.system.lambda_lists[0] = [1, 2, 3]
+        # Ensure 1 and 2 are already matched so they are skipped.
+        algo.matched_vertices.add(1)
+        algo.matched_vertices.add(2)
+        rematch_u(algo, 0)
+        # Phantom edge (0,3) must not be added.
+        assert canonical_edge(0, 3) not in algo.M_star
+
+    def test_partition_m_color_range_error(self) -> None:
+        """Regression: out-of-range colors from vizing_edge_color must raise."""
+        algo = DynamicMaximalMatching(4, mode="basic")
+        algo.insert_edge(0, 1)
+        algo.insert_edge(1, 2)
+        algo.rebuild_basic()
+        # Monkey-patch vizing_edge_color to return an invalid color.
+        import fdmm.dynamic_matching as dm
+        original_color = dm.vizing_edge_color
+
+        def bad_color(graph, delta):
+            return {(0, 1): 0, (1, 2): delta + 5}
+
+        dm.vizing_edge_color = bad_color
+        try:
+            with pytest.raises(RuntimeError):
+                algo.partition_m_into_matchings()
+        finally:
+            dm.vizing_edge_color = original_color
 
 
 # ------------------------------------------------------------------
@@ -659,11 +844,42 @@ class TestMultiLevelSystem:
     def test_level_1_invariant_I3_empty(self) -> None:
         g = DynamicGraph(0)
         mls = MultiLevelSystem(graph=g, k=1)
-        assert mls.level_1_invariant_I3()
+        with pytest.raises(NotImplementedError):
+            mls.level_1_invariant_I3()
+
+    def test_check_multi_level_i3_returns_false(self) -> None:
+        from fdmm.invariants import check_multi_level_i3
+
+        g = DynamicGraph(0)
+        mls = MultiLevelSystem(graph=g, k=1)
+        assert check_multi_level_i3(mls) is False
 
 
 # ------------------------------------------------------------------
-# Performance benchmarks
+# Simulation utilities
+# ------------------------------------------------------------------
+
+class TestSimulation:
+    """Tests for :mod:`fdmm.simulation`."""
+
+    def test_random_update_sequence(self) -> None:
+        rng = random.Random(7)
+        updates = list(random_update_sequence(5, 20, rng))
+        assert len(updates) == 20
+        for op, u, v in updates:
+            assert op in ("insert", "delete")
+            assert 0 <= u < 5
+            assert 0 <= v < 5
+
+    def test_replay_updates(self) -> None:
+        algo = DynamicMaximalMatching(4, mode="basic")
+        updates = [("insert", 0, 1), ("insert", 1, 2), ("delete", 0, 1)]
+        replay_updates(algo, updates)
+        assert algo.is_maximal()
+
+
+# ------------------------------------------------------------------
+# Performance sanity checks
 # ------------------------------------------------------------------
 
 class TestPerformance:

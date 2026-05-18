@@ -15,6 +15,14 @@ from fdmm.graph import DynamicGraph
 from fdmm.types import Color, Coloring, Edge, Vertex, canonical_edge
 
 
+class VizingColoringError(RuntimeError):
+    """Raised when the constructive Vizing recolouring argument hits a corner case.
+
+    This is a narrow subclass so that callers can distinguish expected
+    colouring failures from unexpected programming errors.
+    """
+
+
 def vizing_edge_color(graph: DynamicGraph, delta: int) -> Coloring:
     """Return a proper edge coloring of ``graph`` using at most ``delta + 1`` colours.
 
@@ -41,24 +49,25 @@ def vizing_edge_color(graph: DynamicGraph, delta: int) -> Coloring:
 
     edges = sorted(graph.edges())
 
-    # Fast path: use Vizing's theorem for each edge.
     try:
         for u, v in edges:
-            _color_single_edge(graph, u, v, coloring, max_colors)
+            color_single_edge(graph, u, v, coloring, max_colors)
         return coloring
-    except RuntimeError:
-        # Fallback: backtracking (exponential but correct; only used for
-        # small / dense graphs where the greedy flip hits a corner case).
+    except VizingColoringError:
         coloring.clear()
-        if not _backtrack_color(graph, edges, 0, coloring, max_colors):
+        if not backtrack_color(graph, edges, 0, coloring, max_colors):
+            max_deg = (
+                max(graph.degree(v) for v in range(graph.n))
+                if graph.n else 0
+            )
             raise RuntimeError(
                 f"Unable to color graph with {max_colors} colours "
-                f"(delta={delta}, max_degree={max(graph.degree(v) for v in range(graph.n)) if graph.n else 0})."
+                f"(delta={delta}, max_degree={max_deg})."
             )
         return coloring
 
 
-def _backtrack_color(
+def backtrack_color(
     graph: DynamicGraph,
     edges: list[Edge],
     idx: int,
@@ -81,13 +90,13 @@ def _backtrack_color(
     for c in range(max_colors):
         if c not in used:
             coloring[(u, v)] = c
-            if _backtrack_color(graph, edges, idx + 1, coloring, max_colors):
+            if backtrack_color(graph, edges, idx + 1, coloring, max_colors):
                 return True
             del coloring[(u, v)]
     return False
 
 
-def _missing_colors(
+def missing_colors(
     graph: DynamicGraph,
     vertex: Vertex,
     coloring: Coloring,
@@ -102,7 +111,7 @@ def _missing_colors(
     return [c for c in range(max_colors) if c not in used]
 
 
-def _alternating_path(
+def alternating_path(
     graph: DynamicGraph,
     coloring: Coloring,
     start: Vertex,
@@ -135,7 +144,7 @@ def _alternating_path(
     return path
 
 
-def _flip_path(
+def flip_path(
     coloring: Coloring,
     path: list[Vertex],
     color1: Color,
@@ -150,7 +159,7 @@ def _flip_path(
             coloring[e] = color1
 
 
-def _color_single_edge(
+def color_single_edge(
     graph: DynamicGraph,
     u: Vertex,
     v: Vertex,
@@ -161,46 +170,38 @@ def _color_single_edge(
 
     This implements the standard Vizing recoloring argument.
     """
-    miss_u = _missing_colors(graph, u, coloring, max_colors)
-    miss_v = _missing_colors(graph, v, coloring, max_colors)
+    miss_u = missing_colors(graph, u, coloring, max_colors)
+    miss_v = missing_colors(graph, v, coloring, max_colors)
 
     common = set(miss_u) & set(miss_v)
     if common:
         coloring[canonical_edge(u, v)] = min(common)
         return
 
-    # ``u`` is missing ``c``, ``v`` is missing ``d``.
     c = miss_u[0]
     d = miss_v[0]
 
-    # Maximal (c, d)-alternating path starting at ``u``.
-    path = _alternating_path(graph, coloring, u, c, d)
+    path = alternating_path(graph, coloring, u, c, d)
 
     if v not in path:
-        _flip_path(coloring, path, c, d)
-        # After the flip ``u`` is missing ``d`` and ``v`` is missing ``d``.
+        flip_path(coloring, path, c, d)
         coloring[canonical_edge(u, v)] = d
         return
 
-    # The (c, d)-path reaches ``v``.  By Vizing's theorem the (c', d)-path
-    # from ``u`` does not reach ``v`` for any second colour ``c'`` missing at ``u``.
     if len(miss_u) < 2:
-        raise RuntimeError(
+        raise VizingColoringError(
             f"Vertex {u} has degree {graph.degree(u)} but only "
             f"{len(miss_u)} missing colours (max_colors={max_colors})."
         )
 
     c_prime = miss_u[1]
-    path2 = _alternating_path(graph, coloring, u, c_prime, d)
+    path2 = alternating_path(graph, coloring, u, c_prime, d)
 
     if v in path2:
-        # This contradicts the standard Vizing argument; it typically means
-        # ``delta`` was underestimated.
-        raise RuntimeError(
+        raise VizingColoringError(
             f"Vizing recoloring failed for edge ({u}, {v}): "
             f"both ({c}, {d}) and ({c_prime}, {d}) alternating paths reach {v}."
         )
 
-    _flip_path(coloring, path2, c_prime, d)
-    # After the flip ``u`` is missing ``d`` and ``v`` is missing ``d``.
+    flip_path(coloring, path2, c_prime, d)
     coloring[canonical_edge(u, v)] = d
