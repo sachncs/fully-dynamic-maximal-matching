@@ -32,7 +32,7 @@ jobs:
           ruff check src/fdmm/ tests/ scripts/
 
       - name: Type check with mypy
-        run: mypy fdmm/
+        run: mypy src/fdmm/
 
       - name: Test with pytest
         run: pytest --cov=fdmm --cov-report=xml tests/

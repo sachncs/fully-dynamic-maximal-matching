@@ -11,6 +11,8 @@ from fdmm.matching import build_partner_map, greedy_maximal_matching, partner_of
 from fdmm.simulation import random_update_sequence, replay_updates
 from fdmm.z_system import MultiLevelSystem, ZSubgraphSystem
 
+__version__ = "0.3.0"
+
 __all__ = [
     "DynamicGraph",
     "DynamicMaximalMatching",
