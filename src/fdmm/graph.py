@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import Iterator
 
-from fdmm.types import Edge, Vertex, canonical_edge
+from fdmm.types import Edge, Vertex
 
 
 class DynamicGraph:

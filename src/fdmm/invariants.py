@@ -7,7 +7,7 @@ or debugging scripts.  They do not modify state.
 from __future__ import annotations
 
 from fdmm.graph import DynamicGraph
-from fdmm.types import Edge, Matching, Vertex
+from fdmm.types import Matching, Vertex
 from fdmm.z_system import MultiLevelSystem, ZSubgraphSystem
 
 

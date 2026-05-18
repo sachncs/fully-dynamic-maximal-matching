@@ -19,14 +19,13 @@ Both the basic :math:`\tilde O(n^{2/3})` version and the multi-level
 from __future__ import annotations
 
 import math
-from typing import Iterator
 
 from fdmm.accounting import UpdateAccountant
 from fdmm.edge_coloring import vizing_edge_color
 from fdmm.graph import DynamicGraph
 from fdmm.invariants import check_maximal_matching
 from fdmm.matching import greedy_maximal_matching, partner_of
-from fdmm.types import Color, Coloring, Edge, Matching, Vertex, canonical_edge
+from fdmm.types import Matching, Vertex, canonical_edge
 from fdmm.updates import handle_deletion, handle_insertion
 from fdmm.z_system import MultiLevelSystem, ZSubgraphSystem, build_z_system
 

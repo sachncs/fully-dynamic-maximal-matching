@@ -7,7 +7,7 @@ engine.  They are not specific to the paper's subgraph-system framework.
 from __future__ import annotations
 
 from fdmm.graph import DynamicGraph
-from fdmm.types import Edge, Matching, Vertex, canonical_edge
+from fdmm.types import Matching, Vertex, canonical_edge
 
 
 def greedy_maximal_matching(graph: DynamicGraph) -> Matching:

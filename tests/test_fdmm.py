@@ -11,11 +11,10 @@ import random
 
 import pytest
 
-from fdmm.accounting import UpdateAccountant
 from fdmm.dynamic_matching import DynamicMaximalMatching
 from fdmm.edge_coloring import vizing_edge_color
 from fdmm.graph import DynamicGraph
-from fdmm.invariants import check_maximal_matching, check_z_system_invariants
+from fdmm.invariants import check_maximal_matching
 from fdmm.matching import build_partner_map, greedy_maximal_matching, partner_of
 from fdmm.simulation import random_update_sequence, replay_updates
 from fdmm.types import canonical_edge

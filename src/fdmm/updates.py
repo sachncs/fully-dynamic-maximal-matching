@@ -10,7 +10,7 @@ from __future__ import annotations
 from typing import Any
 
 from fdmm.matching import partner_of
-from fdmm.types import Edge, Vertex, canonical_edge
+from fdmm.types import Vertex, canonical_edge
 
 
 def handle_insertion(algo: Any, u: Vertex, v: Vertex) -> None:
