@@ -9,7 +9,7 @@ algorithm are preserved; only the hidden constant factors differ.
 
 from __future__ import annotations
 
-from typing import Iterator
+from collections.abc import Iterator
 
 from fdmm.types import Edge, Vertex
 

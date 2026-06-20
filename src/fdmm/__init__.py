@@ -8,10 +8,12 @@ from fdmm.dynamic_matching import DynamicMaximalMatching
 from fdmm.graph import DynamicGraph
 from fdmm.invariants import check_maximal_matching, check_z_system_invariants
 from fdmm.matching import build_partner_map, greedy_maximal_matching, partner_of
+from fdmm.parallel import compare_modes, run_parallel_benchmarks
 from fdmm.simulation import random_update_sequence, replay_updates
+from fdmm.visualise import visualise_matching, visualise_system
 from fdmm.z_system import MultiLevelSystem, ZSubgraphSystem
 
-__version__ = "0.3.0"
+__version__ = "0.4.1"
 
 __all__ = [
     "DynamicGraph",
@@ -26,4 +28,8 @@ __all__ = [
     "UpdateAccountant",
     "random_update_sequence",
     "replay_updates",
+    "visualise_system",
+    "visualise_matching",
+    "run_parallel_benchmarks",
+    "compare_modes",
 ]

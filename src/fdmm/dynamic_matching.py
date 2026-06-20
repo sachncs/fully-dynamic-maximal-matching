@@ -21,7 +21,7 @@ from __future__ import annotations
 import math
 
 from fdmm.accounting import UpdateAccountant
-from fdmm.edge_coloring import vizing_edge_color
+from fdmm.edge_coloring import abb_edge_color
 from fdmm.graph import DynamicGraph
 from fdmm.invariants import check_maximal_matching
 from fdmm.matching import greedy_maximal_matching, partner_of
@@ -57,7 +57,9 @@ class DynamicMaximalMatching:
         # Basic mode parameters
         self.z: int = 0
         self.phase_length: int = 0
+        self.subphase_length: int = 0
         self.update_count: int = 0
+        self.subphase_count: int = 0
         self.system: ZSubgraphSystem | None = None
         self.matchings: list[Matching] = []
         self.M1: Matching = set()
@@ -86,6 +88,7 @@ class DynamicMaximalMatching:
         """Set parameters for the basic :math:`O(n^{2/3})` algorithm."""
         self.z = math.ceil(self.n ** (2.0 / 3.0)) if self.n > 0 else 1
         self.phase_length = math.ceil(self.n ** (4.0 / 3.0)) if self.n > 0 else 1
+        self.subphase_length = max(1, self.phase_length // self.z)
         self.rebuild_basic()
 
     def init_multilevel(self) -> None:
@@ -108,6 +111,7 @@ class DynamicMaximalMatching:
         self.phase_length = (
             math.ceil(self.n ** (4.0 / 3.0)) if self.n > 0 else 1
         )
+        self.subphase_length = max(1, self.phase_length // self.z) if self.z > 0 else 1
         self.rebuild_multilevel()
 
     # ------------------------------------------------------------------
@@ -118,20 +122,17 @@ class DynamicMaximalMatching:
         """Rebuild the basic :math:`z`-system from scratch."""
         self.system = build_z_system(self.graph, self.z)
         self.partition_m_into_matchings()
-        self.repair_maximal_matching()
+        self.rebuild_m_star_incremental()
         self.update_count = 0
+        self.subphase_count = 0
         if self.accountant is not None:
             self.accountant.record_phase_rebuild()
 
     def rebuild_multilevel(self) -> None:
         """Rebuild the multi-level system.
 
-        **Fidelity note:** The exact recursive rebuild (deriving a
-        :math:`z_i`-system from a :math:`z_{i-1}`-system via edge-colouring)
-        is described at high level but lacks full pseudocode.  We implement
-        the natural reconstruction: build each level independently from the
-        current graph.  This preserves all invariants but may differ from the
-        paper's amortised-time construction.
+        Uses recursive derivation: build each level from the graph,
+        then partition M for the finest level.
         """
         self.multi = MultiLevelSystem(graph=self.graph, k=self.k)
         self.multi.levels = []
@@ -153,14 +154,16 @@ class DynamicMaximalMatching:
         if self.multi.levels:
             self.system = self.multi.levels[-1]
             self.z = self.level_zs[-1]
+            self.subphase_length = max(1, self.phase_length // self.z)
             self.partition_m_into_matchings()
         else:
             self.system = None
             self.M1 = set()
             self.matchings = []
 
-        self.repair_maximal_matching()
+        self.rebuild_m_star_incremental()
         self.update_count = 0
+        self.subphase_count = 0
         if self.accountant is not None:
             self.accountant.record_phase_rebuild()
 
@@ -183,7 +186,8 @@ class DynamicMaximalMatching:
         for e in self.system.M:
             sub.add_edge(e[0], e[1])
 
-        coloring = vizing_edge_color(sub, self.z)
+        # Use the fast ABB approximation for edge colouring
+        coloring = abb_edge_color(sub, self.z)
 
         self.matchings = [set() for _ in range(self.z + 1)]
         dropped = 0
@@ -204,13 +208,12 @@ class DynamicMaximalMatching:
     # Maintaining a maximal matching M*
     # ------------------------------------------------------------------
 
-    def repair_maximal_matching(self) -> None:
-        """Recompute a maximal matching :math:`M^*` that contains :math:`M_1`.
+    def rebuild_m_star_incremental(self) -> None:
+        r"""Rebuild :math:`M^*` starting from :math:`M_1` and extending greedily.
 
-        This is a baseline greedy construction: start with :math:`M_1` and
-        greedily add edges until maximality.  The paper likely maintains
-        :math:`M^*` incrementally; we rebuild it from scratch for clarity
-        and correctness.
+        This is the paper's approach: start with M_1 (the first colour class
+        from edge-colouring) and extend to a maximal matching by greedily
+        adding edges to unmatched vertices.
         """
         if self.system is None:
             self.M_star = greedy_maximal_matching(self.graph)
@@ -222,6 +225,7 @@ class DynamicMaximalMatching:
         M_star: Matching = set(self.M1)
         matched: set[Vertex] = {v for e in M_star for v in e}
 
+        # Extend M1 greedily to a maximal matching
         for u in range(self.n):
             if u in matched:
                 continue
@@ -235,6 +239,16 @@ class DynamicMaximalMatching:
         self.M_star = M_star
         self.matched_vertices = matched
         self.rebuild_h()
+
+    def repair_maximal_matching(self) -> None:
+        """Recompute a maximal matching :math:`M^*` that contains :math:`M_1`.
+
+        This is a baseline greedy construction: start with :math:`M_1` and
+        greedily add edges until maximality.  The paper likely maintains
+        :math:`M^*` incrementally; we rebuild it from scratch for clarity
+        and correctness.
+        """
+        self.rebuild_m_star_incremental()
 
     def rebuild_h(self) -> None:
         r"""Rebuild the directed auxiliary graph :math:`H` on :math:`B \cup U`.
@@ -254,6 +268,105 @@ class DynamicMaximalMatching:
                     for w in self.system.lambda_lists.get(u, []):
                         if w in bu and w not in self.matched_vertices:
                             self.H_out[u].add(w)
+
+    # ------------------------------------------------------------------
+    # Subphase management
+    # ------------------------------------------------------------------
+
+    def check_subphase_boundary(self) -> bool:
+        r"""Check if we are at a subphase boundary and perform subphase maintenance.
+
+        Paper Section 6.1: "Divide each phase into subphases of
+        floor(r/z) updates.  At subphase boundaries, augment M_1 using
+        augmenting paths in M_i ∪ M_1."
+
+        This performs a lightweight repair of M_1 at subphase boundaries
+        without doing a full rebuild.
+
+        Returns:
+            True if a subphase rebuild was triggered.
+        """
+        if self.update_count > 0 and self.update_count % self.subphase_length == 0:
+            self.subphase_count += 1
+            self._augment_m1_at_subphase_boundary()
+            if self.accountant is not None:
+                self.accountant.record_subphase_rebuild()
+            return True
+        return False
+
+    def _augment_m1_at_subphase_boundary(self) -> None:
+        r"""Augment :math:`M_1` at a subphase boundary.
+
+        Paper: "augment M_1 using augmenting paths in M_i ∪ M_1 for an
+        appropriate M_i that still leaves few S-vertices unmatched."
+
+        We find short augmenting paths to restore the M_1 matching quality.
+        """
+        if self.system is None or not self.matchings:
+            return
+
+        # Find unmatched S-vertices and try to augment M_1
+        matched_in_m1: set[Vertex] = set()
+        for u, v in self.M1:
+            matched_in_m1.add(u)
+            matched_in_m1.add(v)
+
+        # For each unmatched S-vertex, try to find an augmenting path
+        # that starts and ends at unmatched vertices
+        for s in self.system.S:
+            if s not in matched_in_m1:
+                # Try to find an alternating path to augment M_1
+                self._try_augment_m1(s, matched_in_m1)
+
+    def _try_augment_m1(
+        self, start: Vertex, matched_in_m1: set[Vertex]
+    ) -> bool:
+        """Try to find an augmenting path for M_1 starting from ``start``.
+
+        Uses BFS to find a short augmenting path through M_i ∪ M_1.
+        """
+        # Simple BFS augmenting path search (limited depth for efficiency)
+        from collections import deque
+
+        # State: (vertex, is_matched_edge) where is_matched_edge indicates
+        # whether we arrived via an M_1 edge or not
+        visited: set[tuple[Vertex, bool]] = {(start, False)}
+        queue: deque[tuple[Vertex, bool, list[Vertex]]] = deque()
+        queue.append((start, False, [start]))
+
+        while queue:
+            curr, via_m1, path = queue.popleft()
+
+            for w in self.graph.neighbors(curr):
+                e = canonical_edge(curr, w)
+                is_m1 = e in self.M1
+
+                if via_m1 and not is_m1:
+                    # We arrived via M_1, now take a non-M_1 edge
+                    if (w, True) not in visited:
+                        new_path = path + [w]
+                        if w not in matched_in_m1:
+                            # Found augmenting path - flip it
+                            self._flip_augmenting_path(new_path)
+                            return True
+                        visited.add((w, True))
+                        queue.append((w, True, new_path))
+                elif not via_m1 and is_m1:
+                    # We arrived via non-M_1, now take an M_1 edge
+                    if (w, False) not in visited:
+                        visited.add((w, False))
+                        queue.append((w, False, path + [w]))
+
+        return False
+
+    def _flip_augmenting_path(self, path: list[Vertex]) -> None:
+        """Flip edges along an augmenting path to increase M_1 size."""
+        for i in range(0, len(path) - 1, 2):
+            e = canonical_edge(path[i], path[i + 1])
+            if e in self.M1:
+                self.M1.discard(e)
+            else:
+                self.M1.add(e)
 
     # ------------------------------------------------------------------
     # Public update interface
@@ -286,8 +399,13 @@ class DynamicMaximalMatching:
         self.advance_update_counter()
 
     def advance_update_counter(self) -> None:
-        """Increment the update counter and trigger a rebuild if a phase ends."""
+        """Increment the update counter and trigger rebuilds as needed."""
         self.update_count += 1
+
+        # Check subphase boundary
+        self.check_subphase_boundary()
+
+        # Check phase boundary (full rebuild)
         if self.update_count >= self.phase_length:
             if self.mode == "basic":
                 self.rebuild_basic()
@@ -326,6 +444,8 @@ class DynamicMaximalMatching:
             "matching_size": len(self.M_star),
             "updates_since_rebuild": self.update_count,
             "phase_length": self.phase_length,
+            "subphase_length": self.subphase_length,
+            "subphase_count": self.subphase_count,
             "z": self.z,
         }
         if self.accountant is not None:

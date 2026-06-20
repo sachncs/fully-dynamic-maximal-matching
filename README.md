@@ -8,37 +8,36 @@
 > Python reproduction of *"A Faster Deterministic Algorithm for Fully Dynamic
 > Maximal Matching"* (arXiv:2605.00797v1, Chuzhoy–Khanna–Song, STOC 2026).
 
-## Overview
+A deterministic algorithm that maintains a **maximal matching** in an undirected graph under online edge insertions and deletions, achieving amortised update time *n*<sup>1/2+o(1)</sup>.
 
-This package implements a deterministic algorithm that maintains a **maximal
-matching** in an undirected graph under a sequence of online edge insertions
-and deletions.  The adversary may be adaptive.  The paper achieves amortised
-update time :math:`n^{1/2+o(1)}`, improving the previous deterministic bound.
+---
 
-### Key Features
+## Features
 
-* **Basic mode** — :math:`\tilde O(n^{2/3})` amortised update time (single-level
-  :math:`z`-subgraph system).
-* **Multi-level mode** — :math:`n^{1/2+o(1)}` amortised update time (recursive
-  :math:`k`-level system with :math:`k = \Theta(\log n)`).
-* Deterministic :math:`(\Delta+1)`-edge-colouring (Vizing's theorem).
-* Comprehensive invariant checks and maximality verification.
-* Explicit update-work counters for empirical cost auditing.
-* Zero runtime dependencies; pure Python.
+- **Basic mode** — *Õ*(*n*<sup>2/3</sup>) amortised update time (single-level *z*-subgraph system)
+- **Multi-level mode** — *n*<sup>1/2+o(1)</sup> amortised update time (recursive *k*-level system with *k* = Θ(log *n*))
+- Deterministic (Δ+1)-edge-colouring (Vizing's theorem)
+- Comprehensive invariant checks and maximality verification
+- Explicit update-work counters for empirical cost auditing
+- Simulation utilities for random update sequences and replay
+- Zero runtime dependencies — pure Python
+- Full type annotations with `mypy` strict mode
 
 ## Installation
 
-Requires Python ≥ 3.10.
+Requires **Python ≥ 3.10**.
 
 ```bash
+git clone https://github.com/sachn-cs/fully-dynamic-maximal-matching.git
+cd fully-dynamic-maximal-matching
 pip install -e ".[dev]"
 ```
 
-For development:
+For an isolated environment:
 
 ```bash
 python -m venv .venv
-source .venv/bin/activate
+source .venv/bin/activate   # Linux / macOS
 pip install -e ".[dev]"
 ```
 
@@ -65,30 +64,67 @@ print("Stats:", algo.statistics())
 
 ## Usage
 
-### Command-Line Demo
+### Command-Line Interface
 
-```bash
-python scripts/demo.py --n 20 --mode basic --updates 200
-python scripts/demo.py --n 50 --mode multilevel --updates 500
-```
-
-Or via the installed entry point:
+Run the built-in demo:
 
 ```bash
 fdmm --n 20 --mode basic --updates 200
+fdmm --n 50 --mode multilevel --updates 500
 ```
 
-### API
+Or use the demo script directly:
+
+```bash
+python scripts/demo.py --n 20 --mode basic --updates 200
+```
+
+### API Reference
 
 #### `DynamicMaximalMatching(n, mode="basic")`
 
-* `insert_edge(u, v)` — insert an undirected edge and repair the matching.
-* `delete_edge(u, v)` — delete an undirected edge and repair the matching.
-* `get_matching()` — return a copy of the current maximal matching.
-* `is_maximal()` — verify that the current matching is maximal.
-* `matching_size()` — number of edges in the matching.
-* `statistics()` — runtime statistics (n, m, matching size, updates,
-  accountant counters, etc.).
+| Method | Description |
+|--------|-------------|
+| `insert_edge(u, v)` | Insert an undirected edge and repair the matching |
+| `delete_edge(u, v)` | Delete an undirected edge and repair the matching |
+| `get_matching()` | Return a copy of the current maximal matching |
+| `is_maximal()` | Verify that the current matching is maximal |
+| `matching_size()` | Number of edges in the matching |
+| `partner(v)` | Return the partner of vertex `v` in the matching, or `None` |
+| `statistics()` | Runtime statistics (n, m, matching size, update counters, etc.) |
+
+### Simulation & Replay
+
+```python
+from fdmm import DynamicMaximalMatching
+from fdmm.simulation import random_update_sequence, replay_updates
+import random
+
+algo = DynamicMaximalMatching(50, mode="basic")
+rng = random.Random(42)
+updates = list(random_update_sequence(50, 200, rng))
+replay_updates(algo, updates)
+assert algo.is_maximal()
+print(algo.statistics())
+```
+
+### Interpreting Update Counters
+
+`statistics()` includes counters from `UpdateAccountant`:
+
+| Counter | Description |
+|---------|-------------|
+| `total_updates` | Total number of insert/delete operations |
+| `total_insertions` | Number of edge insertions |
+| `total_deletions` | Number of edge deletions |
+| `phase_rebuilds` | Times the *z*-system was rebuilt from scratch |
+| `rematch_u_scans` | Vertices scanned during U-rematching |
+| `rematch_b_scans` | Vertices scanned during B-rematching |
+| `rematch_a_scans` | Vertices scanned during A-rematching |
+| `greedy_rebuilds` | Fallbacks to full greedy reconstruction of M* |
+| `stale_cleanups` | Edges removed from M* because they were deleted |
+
+> These counters are **not** a proof of the amortised bound; they are empirical bookkeeping to help debug where time is spent.
 
 ## Project Structure
 
@@ -96,10 +132,22 @@ fdmm --n 20 --mode basic --updates 200
 fdmm/
 ├── pyproject.toml
 ├── README.md
+├── LICENSE
+├── CHANGELOG.md
+├── CONTRIBUTING.md
+├── CODE_OF_CONDUCT.md
+├── SECURITY.md
 ├── .gitignore
+├── .editorconfig
+├── .gitattributes
 ├── .github/
-│   └── workflows/
-│       └── ci.yml
+│   ├── workflows/
+│   │   └── ci.yml
+│   ├── ISSUE_TEMPLATE/
+│   │   ├── bug_report.md
+│   │   └── feature_request.md
+│   ├── PULL_REQUEST_TEMPLATE.md
+│   └── dependabot.yml
 ├── src/
 │   └── fdmm/
 │       ├── __init__.py
@@ -115,18 +163,21 @@ fdmm/
 │       ├── simulation.py         # Replay and random generators
 │       └── cli.py                # Command-line entry point
 ├── tests/
-│   └── test_fdmm.py          # Comprehensive unit tests
+│   └── test_fdmm.py              # Comprehensive unit tests
 ├── benchmarks/
-│   └── bench_fdmm.py         # Lightweight throughput benchmark
+│   └── bench_fdmm.py             # Lightweight throughput benchmark
 ├── scripts/
-│   └── demo.py               # Runnable demo
+│   └── demo.py                   # Runnable demo
 ├── examples/
 │   ├── example_basic.py
 │   └── example_multilevel.py
 └── docs/
-    ├── index.md              # API documentation
-    ├── paper_restatement.md  # Parsed paper content + UNKNOWNs
-    └── audit_report.md       # Codebase vs. paper audit
+    ├── index.md                  # API documentation
+    ├── getting-started.md        # Getting started guide
+    ├── architecture.md           # Architecture overview
+    ├── faq.md                    # Frequently asked questions
+    ├── paper_restatement.md      # Parsed paper content + UNKNOWNs
+    └── audit_report.md           # Codebase vs. paper audit
 ```
 
 ## Running Tests
@@ -135,38 +186,15 @@ fdmm/
 pytest tests/ -v
 ```
 
-All tests verify that the maintained matching is maximal after every
-operation.  Invariant checks are included for the :math:`z`-subgraph system.
+With coverage:
 
-## Replaying Update Sequences
-
-```python
-from fdmm import DynamicMaximalMatching
-from fdmm.simulation import random_update_sequence, replay_updates
-import random
-
-algo = DynamicMaximalMatching(50, mode="basic")
-rng = random.Random(42)
-updates = list(random_update_sequence(50, 200, rng))
-replay_updates(algo, updates)
-assert algo.is_maximal()
-print(algo.statistics())
+```bash
+pytest --cov=fdmm --cov-report=term-missing tests/
 ```
 
-## Interpreting Update Counters
+All tests verify that the maintained matching is maximal after every operation. Invariant checks are included for the *z*-subgraph system.
 
-`statistics()` includes counters from :class:`fdmm.accounting.UpdateAccountant`:
-
-* `total_updates` / `total_insertions` / `total_deletions`
-* `phase_rebuilds` — how many times the :math:`z`-system was rebuilt from scratch
-* `rematch_u_scans` / `rematch_b_scans` / `rematch_a_scans` — number of vertices scanned during local-search rematching
-* `greedy_rebuilds` — fallbacks to full greedy reconstruction of :math:`M^*`
-* `stale_cleanups` — edges removed from :math:`M^*` because they were deleted from the graph
-
-These counters are **not** a proof of the amortised bound; they are empirical
-bookkeeping to help debug where time is spent.
-
-## Benchmark Execution
+## Benchmarks
 
 ```bash
 python benchmarks/bench_fdmm.py --n 200 --mode basic --updates 5000
@@ -177,54 +205,81 @@ Output includes elapsed time, updates per second, and rebuild counts.
 ## Fidelity Report
 
 | Component | Status | Notes |
-|---|---|---|
-| Dynamic graph layer | **APPROXIMATE** | Adjacency sets (BST → Python ``set`` noted). |
-| :math:`z`-subgraph system definition | **EXACT** | All invariants implemented and testable. |
-| :math:`z`-system construction Step 1 | **EXACT** | Greedy maximal :math:`M` with degree cap :math:`z`; A/B/U derived from :math:`M`. |
-| :math:`z`-system construction Step 2 | **APPROXIMATE** | P1-fixing reconstruction; exact edge-switching rule inside :math:`B` is UNKNOWN. |
-| Multi-level structure | **APPROXIMATE** | Levels rebuilt independently; recursive derivation reconstructed. |
-| Edge colouring (Thm 2.4) | **UNKNOWN** | Vizing :math:`O(m\Delta)` instead of ABB+26 :math:`O(m^{1+o(1)})`. |
-| Phase management | **APPROXIMATE** | Phase lengths reconstructed from parameter table. |
-| Rebuilding :math:`M^*` | **APPROXIMATE** | Greedy construction instead of paper's :math:`\tilde O(m+n)`. |
-| Rematching :math:`A` scan limit | **EXACT** | Fixed to :math:`2\tau+1 = 64r/z+1` per paper. |
-| Rematching :math:`U` / :math:`B` | **APPROXIMATE** | Reconstructed from English descriptions; scans are bounded by list sizes. |
-| Maximality verification | **EXACT** | Brute-force settled-vertex check. |
-| Accounting / counters | **EXACT** | Explicit counters present; no theorem claims made. |
+|-----------|--------|-------|
+| Dynamic graph layer | **APPROXIMATE** | Adjacency sets (BST → Python `set` noted) |
+| *z*-subgraph system definition | **EXACT** | All invariants implemented and testable |
+| *z*-system construction Step 1 | **EXACT** | Greedy maximal M with degree cap *z*; A/B/U derived from M |
+| *z*-system construction Step 2 | **APPROXIMATE** | P1-fixing reconstruction; exact edge-switching rule inside B is UNKNOWN |
+| Multi-level structure | **APPROXIMATE** | Levels rebuilt independently; recursive derivation reconstructed |
+| Edge colouring (Thm 2.4) | **UNKNOWN** | Vizing O(mΔ) instead of ABB+26 O(m<sup>1+o(1)</sup>) |
+| Phase management | **APPROXIMATE** | Phase lengths reconstructed from parameter table |
+| Rebuilding M* | **APPROXIMATE** | Greedy construction instead of paper's Õ(m+n) |
+| Rematching A scan limit | **EXACT** | Fixed to 2τ+1 = 64r/z+1 per paper |
+| Rematching U / B | **APPROXIMATE** | Reconstructed from English descriptions; scans bounded by list sizes |
+| Maximality verification | **EXACT** | Brute-force settled-vertex check |
+| Accounting / counters | **EXACT** | Explicit counters present; no theorem claims made |
 
 ### Known Mismatches
 
-1. **Adjacency BSTs** → Python ``set`` (asymptotics preserved, constants differ).
-2. **Edge colouring** — standard Vizing recolouring with backtracking fallback
-   for dense graphs. Correct but slower than ABB+26.
-3. **Rebuild of :math:`M`** — Step 2 uses a best-effort reconstruction because
-   the exact switching rule is truncated.
-4. **Multi-level rebuild** — levels rebuilt independently for clarity.
-5. **Rematching pseudocode** — reconstructed from descriptions; exact constants
-   in :math:`O(r/z)` bounds not specified in excerpt.
-6. **Subphases** — not implemented; only full-phase rebuilds are used.
+1. **Adjacency BSTs** → Python `set` (asymptotics preserved, constants differ)
+2. **Edge colouring** — standard Vizing recolouring with backtracking fallback for dense graphs. Correct but slower than ABB+26
+3. **Rebuild of M** — Step 2 uses a best-effort reconstruction because the exact switching rule is truncated
+4. **Multi-level rebuild** — levels rebuilt independently for clarity
+5. **Rematching pseudocode** — reconstructed from descriptions; exact constants in O(r/z) bounds not specified in excerpt
+6. **Subphases** — not implemented; only full-phase rebuilds are used
 
 ## Optional Extensions
 
 These are **not** part of the baseline reproduction and are isolated from it:
 
 | Extension | Status | Label |
-|---|---|---|
+|-----------|--------|-------|
 | Adjacency BSTs | Not implemented | engineering-only improvement |
 | ABB+26 edge colouring | Not implemented | explicitly out of scope |
-| Incremental :math:`M^*` | Not implemented | reasonable future extension |
+| Incremental M* | Not implemented | reasonable future extension |
 | Exact phase constants | Not implemented | explicitly out of scope (unknown) |
 | Subphase augmentation | Not implemented | explicitly out of scope (unknown) |
 | Batch updates | Not implemented | reasonable future extension |
 | Visualisation of subgraph system | Not implemented | engineering-only improvement |
 | Multiprocessing | Not implemented | engineering-only improvement |
 
+## Tech Stack
+
+| Component | Technology |
+|-----------|------------|
+| Language | Python 3.10+ |
+| Build system | setuptools (pyproject.toml) |
+| Testing | pytest, pytest-cov, hypothesis |
+| Type checking | mypy (strict mode) |
+| Linting | ruff |
+| CI | GitHub Actions |
+
+## Roadmap
+
+- [ ] Fix edge-switching rule inside B (Step 2 construction)
+- [ ] Implement ABB+26 deterministic edge colouring
+- [ ] Add subphase management
+- [ ] Implement incremental M* maintenance
+- [ ] Add recursive multi-level rebuild derivation
+- [ ] Visualisation of subgraph system
+- [ ] Benchmarking suite with automated regression detection
+
 ## Contributing
 
-1. Fork the repository.
-2. Create a feature branch (`git checkout -b feature/xyz`).
-3. Run tests and type checks (`pytest`, `mypy fdmm/`).
-4. Submit a pull request.
+Contributions are welcome! Please read our [Contributing Guidelines](CONTRIBUTING.md) before submitting a pull request.
+
+## Code of Conduct
+
+This project follows the [Contributor Covenant Code of Conduct](CODE_OF_CONDUCT.md). By participating, you are expected to uphold this code.
+
+## Security
+
+To report security vulnerabilities, please see our [Security Policy](SECURITY.md).
 
 ## License
 
-MIT
+This project is licensed under the [MIT License](LICENSE).
+
+---
+
+*Based on "A Faster Deterministic Algorithm for Fully Dynamic Maximal Matching" by Julia Chuzhoy, Sanjeev Khanna, and Junkai Song (arXiv:2605.00797v1).*

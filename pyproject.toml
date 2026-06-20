@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "fdmm"
-version = "0.3.0"
+version = "0.4.1"
 description = "A Faster Deterministic Algorithm for Fully Dynamic Maximal Matching — Python reproduction of arXiv:2605.00797v1."
 readme = "README.md"
 license = {text = "MIT"}
@@ -12,7 +12,16 @@ requires-python = ">=3.10"
 authors = [
     {name = "Sachin"},
 ]
-urls = {Homepage = "https://github.com/sachn-cs/fully-dynamic-maximal-matching"}
+keywords = [
+    "algorithm",
+    "graph",
+    "matching",
+    "dynamic",
+    "maximal-matching",
+    "data-structures",
+    "complexity",
+    "theoretical-computer-science",
+]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Science/Research",
@@ -25,6 +34,11 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Mathematics",
     "Typing :: Typed",
 ]
+[project.urls]
+Homepage = "https://github.com/sachn-cs/fully-dynamic-maximal-matching"
+Repository = "https://github.com/sachn-cs/fully-dynamic-maximal-matching"
+Issues = "https://github.com/sachn-cs/fully-dynamic-maximal-matching/issues"
+Changelog = "https://github.com/sachn-cs/fully-dynamic-maximal-matching/blob/master/CHANGELOG.md"
 
 [project.optional-dependencies]
 dev = [
@@ -32,6 +46,7 @@ dev = [
     "pytest-cov>=4.0",
     "mypy>=1.0",
     "hypothesis>=6.0",
+    "ruff>=0.4.0",
 ]
 
 [project.scripts]
@@ -50,3 +65,26 @@ show_error_codes = true
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 88
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "A", "SIM"]
+ignore = [
+    "N802",  # Function names use mathematical notation from the paper (P1, P2, M, S, etc.)
+    "N803",  # Argument names use mathematical notation from the paper (M, deg_M, etc.)
+    "N806",  # Variable names use mathematical notation from the paper (M, A, B, U, S, etc.)
+    "SIM102",  # Nested ifs are sometimes clearer for readability
+    "SIM110",  # Loop form preferred for complex comprehensions
+    "SIM300",  # Yoda conditions sometimes used for clarity
+    "B904",  # raise from not always needed in except clauses
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["fdmm"]
+
+[tool.ruff.lint.per-file-ignores]
+"scripts/*.py" = ["E501"]
+"benchmarks/*.py" = ["E501"]

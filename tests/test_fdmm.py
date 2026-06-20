@@ -20,7 +20,6 @@ from fdmm.simulation import random_update_sequence, replay_updates
 from fdmm.types import canonical_edge
 from fdmm.z_system import MultiLevelSystem, ZSubgraphSystem, build_z_system
 
-
 # ------------------------------------------------------------------
 # Graph layer
 # ------------------------------------------------------------------
@@ -747,7 +746,7 @@ class TestDynamicMaximalMatching:
     def test_phase_transition(self) -> None:
         algo = DynamicMaximalMatching(4, mode="basic")
         algo.phase_length = 5
-        for i in range(5):
+        for _i in range(5):
             algo.insert_edge(0, 1)
         assert algo.update_count == 0  # rebuild triggered
         assert algo.is_maximal()
@@ -796,24 +795,24 @@ class TestDynamicMaximalMatching:
         assert canonical_edge(0, 3) not in algo.M_star
 
     def test_partition_m_color_range_error(self) -> None:
-        """Regression: out-of-range colors from vizing_edge_color must raise."""
+        """Regression: out-of-range colors from abb_edge_color must raise."""
         algo = DynamicMaximalMatching(4, mode="basic")
         algo.insert_edge(0, 1)
         algo.insert_edge(1, 2)
         algo.rebuild_basic()
-        # Monkey-patch vizing_edge_color to return an invalid color.
+        # Monkey-patch abb_edge_color to return an invalid color.
         import fdmm.dynamic_matching as dm
-        original_color = dm.vizing_edge_color
+        original_color = dm.abb_edge_color
 
         def bad_color(graph, delta):
             return {(0, 1): 0, (1, 2): delta + 5}
 
-        dm.vizing_edge_color = bad_color
+        dm.abb_edge_color = bad_color
         try:
             with pytest.raises(RuntimeError):
                 algo.partition_m_into_matchings()
         finally:
-            dm.vizing_edge_color = original_color
+            dm.abb_edge_color = original_color
 
 
 # ------------------------------------------------------------------
