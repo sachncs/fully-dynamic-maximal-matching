@@ -92,6 +92,26 @@ python scripts/demo.py --n 20 --mode basic --updates 200
 | `matching_size()` | Number of edges in the matching |
 | `partner(v)` | Return the partner of vertex `v` in the matching, or `None` |
 | `statistics()` | Runtime statistics (n, m, matching size, update counters, etc.) |
+| `augment_m1_at_subphase_boundary()` | Augment `M_1` at the next subphase boundary |
+| `try_augment_m1(start, matched_in_m1)` | BFS for an `M_1` augmenting path starting at `start` |
+| `flip_augmenting_path(path)` | Flip edges along an augmenting path |
+
+#### Construction primitives (`fdmm.z_system`)
+
+| Function | Description |
+|----------|-------------|
+| `build_z_system(graph, z)` | Build a fresh `ZSubgraphSystem` from a graph |
+| `build_multi_level_system(graph, level_zs)` | Stack `z`-systems for the recursive algorithm |
+| `edge_switch_inside_B(...)` | Alternating-path capacity recovery inside `B` |
+| `promote_u_vertex(...)` | Try to promote a `U`-vertex into `B` |
+
+#### Edge colouring (`fdmm.edge_coloring`)
+
+| Function | Description |
+|----------|-------------|
+| `abb_edge_color(graph, delta)` | Degree-ordered greedy `(Δ+1)`-colouring |
+| `vizing_edge_color(graph, delta)` | Classical Vizing recolouring with backtracking fallback |
+| `color_single_edge`, `alternating_path`, `flip_path` | Building-block primitives |
 
 ### Simulation & Replay
 

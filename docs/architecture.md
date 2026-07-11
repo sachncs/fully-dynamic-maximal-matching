@@ -46,13 +46,19 @@ Provides the greedy maximal matching construction used during rebuilds.
 - `partner_of(matching, vertex)` — O(1) lookup of a vertex's partner
 - `build_partner_map(matching)` — builds a full partner map from a matching set
 
-### `edge_coloring.py` — Vizing Edge Colouring
+### `edge_coloring.py` — Edge Colouring
 
-Deterministic (Δ+1)-edge-colouring via Vizing's algorithm with exponential backtracking fallback.
+Deterministic (Δ+1)-edge-colouring via two complementary strategies plus
+the alternating-path primitives that back them up.
 
-- **Input**: graph G, maximum degree Δ
-- **Output**: proper edge colouring using at most Δ+1 colours
-- **Complexity**: O(mΔ) worst case (paper requires O(m<sup>1+o(1)</sup>), which is out of scope)
+- `abb_edge_color(graph, delta)` — degree-sum-ordered greedy with short
+  recolour attempts (`recolour_for_edge`, `find_edge_of_color`).
+- `vizing_edge_color(graph, delta)` — classical Vizing with exponential
+  backtracking fallback.
+- `color_single_edge`, `alternating_path`, `flip_path` — building blocks
+  used by both strategies.
+- **Complexity**: O(m·Δ) worst case (paper requires O(m<sup>1+o(1)</sup>),
+  which is out of scope.
 
 ### `z_system.py` — Z-Subgraph System
 
@@ -70,6 +76,18 @@ Additional data:
 - **Λ(u)** for u ∈ U: neighbours of u in B ∪ U
 - **L(a)** for a ∈ A: neighbours of a in U
 
+Public construction primitives exposed alongside the data classes:
+
+- `build_z_system(graph, z)` — two-step greedy + alternating-path
+  construction from Section 5.2 of the paper.
+- `build_multi_level_system(graph, level_zs)` — stacks `z`-systems at
+  decreasing `z` for the `n^{1/2+o(1)}` schedule.
+- `edge_switch_inside_B(...)` — performs the alternating-path
+  edge-switching inside `B` during Step 2 promotion.
+- `promote_u_vertex(...)` — tries to promote a `U`-vertex into `B` by
+  giving it `z` matching edges to `B`-neighbours, falling back to
+  `edge_switch_inside_B`.
+
 Invariants enforced:
 - **P1**: |N_G(u) ∩ B| ≤ 2z for all u ∈ U
 - **P2**: Each a ∈ A is matched only to vertices in S
@@ -84,6 +102,15 @@ The `DynamicMaximalMatching` class orchestrates:
 3. **Insertion handling**: adds edge and repairs the matching
 4. **Deletion handling**: removes edge and rematches affected vertices
 5. **Rebuild**: reconstructs the z-system from scratch
+
+Public methods that drive subphase / augmentation logic directly are
+now part of the API surface:
+
+- `augment_m1_at_subphase_boundary()` — perform the `M_1` augmentation
+  step at the next subphase boundary.
+- `try_augment_m1(start, matched_in_m1)` — short BFS augmenting-path
+  search in `M_i ∪ M_1`.
+- `flip_augmenting_path(path)` — flip edges along an augmenting path.
 
 Two modes:
 - **Basic**: single-level z-system with z = ⌊n<sup>2/3</sup>⌋, r = ⌊n<sup>4/3</sup>⌋
@@ -120,6 +147,22 @@ The `UpdateAccountant` class tracks empirical costs:
 
 - `random_update_sequence(n, m, rng)` — generates random insert/delete sequences
 - `replay_updates(algo, updates)` — replays a sequence against an algorithm instance
+
+### `parallel.py` — Multiprocessing Benchmarks
+
+- `run_parallel_benchmarks(configs, max_workers=None)` — runs a list of
+  `((n, mode, updates, seed), ...)` jobs in a `multiprocessing.Pool`.
+- `compare_modes(n, updates, seed=42)` — convenience wrapper that runs
+  basic and multilevel on the same seed.
+- `run_benchmark_worker(n, mode, updates, seed)` — the per-process
+  worker previously prefixed with `_`; now re-exported for callers
+  who want to drive the same code path inside their own pool.
+
+### `visualise.py` — ASCII Visualisation
+
+- `visualise_system(system, width=60)` — render the z-subgraph system
+- `visualise_matching(algo, width=60)` — render the current matching state
+- `visualise_graph_adjacency(algo, width=60)` — render the adjacency list
 
 ### `cli.py` — Command-Line Interface
 
