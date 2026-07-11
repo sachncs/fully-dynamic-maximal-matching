@@ -56,7 +56,7 @@ class BenchmarkResult:
     subphase_rebuilds: int
 
 
-def _run_benchmark_worker(
+def run_benchmark_worker(
     n: int,
     mode: str,
     updates: int,
@@ -128,7 +128,7 @@ def run_parallel_benchmarks(
     """
     with multiprocessing.Pool(processes=max_workers) as pool:
         results = pool.starmap(
-            _run_benchmark_worker,
+            run_benchmark_worker,
             configs,
         )
     return list(results)

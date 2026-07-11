@@ -392,13 +392,13 @@ class DynamicMaximalMatching:
         """
         if self.update_count > 0 and self.update_count % self.subphase_length == 0:
             self.subphase_count += 1
-            self._augment_m1_at_subphase_boundary()
+            self.augment_m1_at_subphase_boundary()
             if self.accountant is not None:
                 self.accountant.record_subphase_rebuild()
             return True
         return False
 
-    def _augment_m1_at_subphase_boundary(self) -> None:
+    def augment_m1_at_subphase_boundary(self) -> None:
         r"""Augment :math:`M_1` at a subphase boundary.
 
         Paper: "augment :math:`M_1` using augmenting paths in
@@ -426,9 +426,9 @@ class DynamicMaximalMatching:
         for s in self.system.S:
             if s not in matched_in_m1:
                 # Try to find an alternating path to augment M_1
-                self._try_augment_m1(s, matched_in_m1)
+                self.try_augment_m1(s, matched_in_m1)
 
-    def _try_augment_m1(
+    def try_augment_m1(
         self, start: Vertex, matched_in_m1: set[Vertex]
     ) -> bool:
         r"""Try to find an augmenting path for :math:`M_1` starting from ``start``.
@@ -469,7 +469,7 @@ class DynamicMaximalMatching:
                         new_path = path + [w]
                         if w not in matched_in_m1:
                             # Found augmenting path - flip it
-                            self._flip_augmenting_path(new_path)
+                            self.flip_augmenting_path(new_path)
                             return True
                         visited.add((w, True))
                         queue.append((w, True, new_path))
@@ -481,7 +481,7 @@ class DynamicMaximalMatching:
 
         return False
 
-    def _flip_augmenting_path(self, path: list[Vertex]) -> None:
+    def flip_augmenting_path(self, path: list[Vertex]) -> None:
         """Flip edges along an augmenting path to grow :math:`M_1`.
 
         Alternating paths start and end at unmatched vertices, so every

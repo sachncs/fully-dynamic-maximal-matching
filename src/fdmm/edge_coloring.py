@@ -69,7 +69,7 @@ def abb_edge_color(graph: DynamicGraph, delta: int) -> Coloring:
         3. For each edge ``(u, v)`` find the smallest ``c`` not used at
            either endpoint; assign it.
         4. If no such ``c`` exists, call
-           :func:`_recolour_for_edge` to attempt a short alternating-path
+           :func:`recolour_for_edge` to attempt a short alternating-path
            recolour; on failure escalate to the full Vizing argument and
            finally to backtracking for the whole graph.
 
@@ -124,7 +124,7 @@ def abb_edge_color(graph: DynamicGraph, delta: int) -> Coloring:
             continue
 
         # All colours used by both endpoints -- attempt a short recolour.
-        success = _recolour_for_edge(graph, coloring, vertex_colors, u, v, max_colors)
+        success = recolour_for_edge(graph, coloring, vertex_colors, u, v, max_colors)
         if not success:
             # Escalate to the classical Vizing alternating-path argument.
             try:
@@ -161,7 +161,7 @@ def abb_edge_color(graph: DynamicGraph, delta: int) -> Coloring:
     return coloring
 
 
-def _recolour_for_edge(
+def recolour_for_edge(
     graph: DynamicGraph,
     coloring: Coloring,
     vertex_colors: list[set[Color]],
@@ -203,7 +203,7 @@ def _recolour_for_edge(
             # Locate the unique edge of colour c1 at v.  Multiple
             # candidates indicate the recolouring has already failed
             # for this colour, so we skip them.
-            e_v = _find_edge_of_color(graph, coloring, v, c1)
+            e_v = find_edge_of_color(graph, coloring, v, c1)
             if e_v is None:
                 continue
             w = e_v[0] if e_v[1] == v else e_v[1]
@@ -233,7 +233,7 @@ def _recolour_for_edge(
     return False
 
 
-def _find_edge_of_color(
+def find_edge_of_color(
     graph: DynamicGraph, coloring: Coloring, v: Vertex, c: Color
 ) -> Edge | None:
     """Find an edge incident to ``v`` with colour ``c``.

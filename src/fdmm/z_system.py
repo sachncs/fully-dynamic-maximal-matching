@@ -39,7 +39,7 @@ Assumptions:
 Limitations:
     * The exact edge-switching rule of the paper's Step 2 construction
       is replaced with a BFS-based augmenting-path heuristic.  See the
-      notes on :func:`_edge_switch_inside_B`.
+      notes on :func:`edge_switch_inside_B`.
 """
 
 from __future__ import annotations
@@ -374,7 +374,7 @@ class MultiLevelSystem:
         )
 
 
-def _edge_switch_inside_B(
+def edge_switch_inside_B(
     graph: DynamicGraph,
     M: set[Edge],
     deg_M: dict[Vertex, int],
@@ -511,7 +511,7 @@ def _edge_switch_inside_B(
     return False
 
 
-def _promote_u_vertex(
+def promote_u_vertex(
     graph: DynamicGraph,
     system: ZSubgraphSystem,
     M: set[Edge],
@@ -525,7 +525,7 @@ def _promote_u_vertex(
     The procedure runs in two phases.  First, it greedily adds edges
     from ``u`` to unsaturated B-neighbours until either ``z`` such edges
     exist or no unsaturated neighbour remains.  Second, it invokes
-    :func:`_edge_switch_inside_B` to recover capacity from saturated
+    :func:`edge_switch_inside_B` to recover capacity from saturated
     B-vertices until the count reaches ``z``.
 
     After promotion, ``u`` is moved from ``U`` to ``B``; any B-vertex
@@ -569,7 +569,7 @@ def _promote_u_vertex(
     if added < z:
         needed = z - added
         for _ in range(needed):
-            if _edge_switch_inside_B(graph, M, deg_M, z, u, b_neighbors):
+            if edge_switch_inside_B(graph, M, deg_M, z, u, b_neighbors):
                 added += 1
             else:
                 # Out of recoverable capacity -- leave u in U.
@@ -618,7 +618,7 @@ def build_z_system(graph: DynamicGraph, z: int) -> ZSubgraphSystem:
     * :math:`v \in U` iff :math:`\deg_M(v) < z`.
 
     Step 2 -- promote U-vertices to B until no further promotion is
-    possible.  Promotion is handled by :func:`_promote_u_vertex` which
+    possible.  Promotion is handled by :func:`promote_u_vertex` which
     tries direct edges first and falls back to edge-switching inside B.
 
     **Fidelity note:** Step 2 uses an alternating-path edge-switching
@@ -679,7 +679,7 @@ def build_z_system(graph: DynamicGraph, z: int) -> ZSubgraphSystem:
     while changed:
         changed = False
         for u in list(system.U):
-            if _promote_u_vertex(graph, system, M, deg_M, z, u):
+            if promote_u_vertex(graph, system, M, deg_M, z, u):
                 changed = True
 
     system.M = M
