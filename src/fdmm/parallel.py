@@ -1,9 +1,19 @@
 """Multiprocessing support for parallel update processing.
 
-This module provides utilities for running multiple DynamicMaximalMatching
-instances in parallel, useful for benchmarking and comparing modes.
+This module provides utilities for running multiple
+:class:`DynamicMaximalMatching` instances in parallel, useful for
+benchmarking and comparing the basic and multilevel modes.
 
 **Engineering utility** -- not part of the paper's baseline algorithm.
+
+Process / thread safety:
+    * Each worker process builds and tears down its own
+      :class:`DynamicMaximalMatching` instance; nothing is shared
+      across processes.
+    * The ``multiprocessing.Pool`` used by :func:`run_parallel_benchmarks`
+      forks its workers, so the algorithm must be safe to import
+      without side effects.  This is ensured by the lack of mutable
+      module-level state.
 """
 
 from __future__ import annotations
@@ -20,7 +30,20 @@ if TYPE_CHECKING:
 
 @dataclass
 class BenchmarkResult:
-    """Result from a single benchmark run."""
+    """Result from a single benchmark run.
+
+    Attributes:
+        n: Number of vertices.
+        mode: Algorithm mode (``"basic"`` or ``"multilevel"``).
+        updates: Number of update operations replayed.
+        elapsed_sec: Wall-clock time elapsed in seconds.
+        updates_per_sec: ``updates / elapsed_sec`` (``inf`` when no
+            time elapsed, e.g. on empty input).
+        matching_size: :math:`|M^*|` after the run.
+        is_maximal: ``True`` iff ``is_maximal()`` returned ``True``.
+        phase_rebuilds: Count of full phase rebuilds triggered.
+        subphase_rebuilds: Count of subphase augmentations triggered.
+    """
 
     n: int
     mode: str
@@ -39,7 +62,10 @@ def _run_benchmark_worker(
     updates: int,
     seed: int,
 ) -> BenchmarkResult:
-    """Worker function for parallel benchmark execution."""
+    """Worker function for parallel benchmark execution.
+
+    Built and discarded inside one worker process; no shared state.
+    """
     import time
 
     from fdmm.dynamic_matching import DynamicMaximalMatching
@@ -76,12 +102,19 @@ def run_parallel_benchmarks(
 ) -> list[BenchmarkResult]:
     """Run multiple benchmarks in parallel.
 
+    Each entry of ``configs`` describes one benchmark as a tuple
+    ``(n, mode, updates, seed)``.  The workers run on independent
+    processes so the GIL does not interfere.
+
     Args:
-        configs: List of (n, mode, updates, seed) tuples.
-        max_workers: Maximum number of parallel workers (default: CPU count).
+        configs: List of ``(n, mode, updates, seed)`` tuples.
+        max_workers: Maximum number of parallel workers; ``None``
+            (the default) leaves the choice to :mod:`multiprocessing`,
+            which defaults to the number of CPU cores.
 
     Returns:
-        List of BenchmarkResult objects.
+        List of :class:`BenchmarkResult` objects in the same order as
+        ``configs``.
 
     Example:
         >>> configs = [
@@ -109,6 +142,11 @@ def compare_modes(
 ) -> dict[str, BenchmarkResult]:
     """Compare basic and multilevel modes on the same graph size.
 
+    Runs the same update sequence (seeded identically) against both
+    modes and returns the per-mode results keyed by mode name.  This is
+    the typical one-shot entry point used by the README's "Comparing
+    modes" snippet.
+
     Args:
         n: Number of vertices.
         updates: Number of update operations.
@@ -116,7 +154,8 @@ def compare_modes(
         max_workers: Maximum parallel workers.
 
     Returns:
-        Dict mapping mode name to BenchmarkResult.
+        Dict mapping mode name (``"basic"`` / ``"multilevel"``) to
+        :class:`BenchmarkResult`.
     """
     configs = [
         (n, "basic", updates, seed),

@@ -3,6 +3,43 @@ r"""The :math:`z`-subgraph system and multi-level generalisation.
 This module defines the combinatorial data structures that lie at the heart
 of the paper's algorithm.  The implementation follows the notation and
 invariants of Section 2 as closely as possible.
+
+Mathematical background:
+    A :math:`z`-subgraph system is a triple :math:`(A, B, U)` partitioning
+    the vertex set together with an edge set :math:`M` that satisfies:
+
+    * every :math:`v \in S := A \cup B` has :math:`\deg_M(v) = z`,
+    * every :math:`u \in U` has :math:`\deg_M(u) \le z`,
+    * :math:`|N_G(u) \cap U| \le z` for :math:`u \in U` (a degree cap
+      inside :math:`U` that prevents runaway promotion chains),
+    * (P1) :math:`|N_G(u) \cap B| \le 2z` for every :math:`u \in U`,
+    * (P2) every :math:`M`-edge incident to :math:`a \in A` meets a vertex
+      of :math:`S`.
+
+    Each :math:`u \in U` is maintained alongside two index lists:
+    :math:`\Lambda(u) = N_G(u) \cap (B \cup U)` and
+    :math:`L(a) = N_G(a) \cap U`.  These lists drive the amortised
+    :math:`\tilde O(n^{2/3})` per-update bound of the basic algorithm.
+
+    A multi-level system stacks :math:`k` such systems at decreasing
+    values of :math:`z`, allowing the recursion to yield the improved
+    :math:`n^{1/2+o(1)}` bound in the full version.
+
+References:
+    Chuzhoy, Khanna, Song.  "A Faster Deterministic Algorithm for Fully
+    Dynamic Maximal Matching" (arXiv:2605.00797v1), Sections 2 and 5.
+
+Assumptions:
+    * Vertex labels are dense integers ``0 .. n-1`` (a property inherited
+      from :class:`fdmm.graph.DynamicGraph`).
+    * The system is freshly constructed via :func:`build_z_system`; it is
+      the caller's responsibility to maintain :math:`\Lambda` and
+      :math:`L` thereafter (or to invoke :meth:`build_lambda_and_L`).
+
+Limitations:
+    * The exact edge-switching rule of the paper's Step 2 construction
+      is replaced with a BFS-based augmenting-path heuristic.  See the
+      notes on :func:`_edge_switch_inside_B`.
 """
 
 from __future__ import annotations
@@ -30,6 +67,19 @@ class ZSubgraphSystem:
             :math:`\Lambda(u) = N_G(u) \cap (B \cup U)`.
         L_lists: For each :math:`a \in A`, the list
             :math:`L(a) = N_G(a) \cap U`.
+
+    Lifecycle:
+        A system is normally built by :func:`build_z_system`.  After any
+        mutation of ``self.graph`` the cached lists in ``lambda_lists``
+        and ``L_lists`` must be refreshed via
+        :meth:`build_lambda_and_L`.  Mutating ``A``, ``B``, ``U``, or
+        ``M`` directly is permitted (this is what the dynamic update
+        code does) but should be followed by
+        :meth:`check_all_invariants` to verify the system stays legal.
+
+    Thread-safety:
+        Not thread-safe.  A ``ZSubgraphSystem`` should be touched only
+        from the thread that owns the underlying ``DynamicGraph``.
     """
 
     graph: DynamicGraph
@@ -43,16 +93,26 @@ class ZSubgraphSystem:
 
     @property
     def S(self) -> set[Vertex]:
-        r"""Return :math:`S = A \cup B`."""
+        r"""Return :math:`S = A \cup B`, the set of saturated vertices."""
         return self.A | self.B
 
     @property
     def V(self) -> set[Vertex]:
-        """Return the full vertex set."""
+        """Return the full vertex set of the host graph."""
         return set(range(self.graph.n))
 
     def degree_in_M(self, v: Vertex) -> int:
-        """Return the number of edges of :math:`M` incident to ``v``."""
+        r"""Return the number of edges of :math:`M` incident to ``v``.
+
+        Args:
+            v: The vertex to inspect.
+
+        Returns:
+            The :math:`M`-degree of ``v``.
+
+        Complexity:
+            :math:`O(\deg_G(v))`.
+        """
         deg = 0
         for w in self.graph.neighbors(v):
             e = canonical_edge(v, w)
@@ -61,14 +121,35 @@ class ZSubgraphSystem:
         return deg
 
     def neighbors_in_M(self, v: Vertex) -> Iterator[Vertex]:
-        """Yield neighbours of ``v`` that are joined by an edge of :math:`M`."""
+        r"""Yield neighbours of ``v`` that are joined by an edge of :math:`M`.
+
+        Args:
+            v: The vertex whose :math:`M`-neighbours are returned.
+
+        Yields:
+            Every vertex ``w`` such that ``(v, w) \in M``.
+
+        Complexity:
+            Amortised :math:`O(\deg_M(v))` per complete iteration.
+        """
         for w in self.graph.neighbors(v):
             if canonical_edge(v, w) in self.M:
                 yield w
 
     def check_degree_bounds(self) -> bool:
-        r"""Check that every :math:`v \in S` has degree exactly ``z`` in :math:`M`
-        and every :math:`u \in U` has degree at most ``z``.
+        r"""Check the basic degree bounds of the :math:`z`-system.
+
+        Verifies two conditions:
+            * every :math:`v \in S` has :math:`\deg_M(v) = z`
+              (saturated vertices are exactly at the cap);
+            * every :math:`u \in U` has :math:`\deg_M(u) \le z`
+              (unsaturated vertices stay at or below the cap).
+
+        Returns:
+            ``True`` iff both conditions hold.
+
+        Complexity:
+            :math:`O(n + m)` -- one pass over the adjacency lists.
         """
         for v in self.S:
             if self.degree_in_M(v) != self.z:
@@ -79,7 +160,17 @@ class ZSubgraphSystem:
         return True
 
     def check_U_degree_in_U(self) -> bool:
-        r"""Check :math:`|N_G(u) \cap U| \le z` for all :math:`u \in U`."""
+        r"""Check :math:`|N_G(u) \cap U| \le z` for all :math:`u \in U`.
+
+        This cap on internal :math:`U`-edges is what stops the
+        promotion chain in Step 2 from cascading forever.
+
+        Returns:
+            ``True`` iff the bound holds for every :math:`u \in U`.
+
+        Complexity:
+            :math:`O(n + m)`.
+        """
         for u in self.U:
             count = sum(1 for w in self.graph.neighbors(u) if w in self.U)
             if count > self.z:
@@ -87,7 +178,18 @@ class ZSubgraphSystem:
         return True
 
     def check_P1(self) -> bool:
-        r"""Check property (P1): |N_G(u) ∩ B| ≤ 2z for all u ∈ U."""
+        r"""Check property (P1): :math:`|N_G(u) \cap B| \le 2z` for all :math:`u \in U`.
+
+        P1 controls the size of the alternating search during rematching;
+        if it is violated the paper's :math:`\tilde O(n^{2/3})` bound no
+        longer follows from the invariants.
+
+        Returns:
+            ``True`` iff (P1) holds for every :math:`u \in U`.
+
+        Complexity:
+            :math:`O(n + m)`.
+        """
         for u in self.U:
             count = sum(1 for w in self.graph.neighbors(u) if w in self.B)
             if count > 2 * self.z:
@@ -95,8 +197,17 @@ class ZSubgraphSystem:
         return True
 
     def check_P2(self) -> bool:
-        r"""Check property (P2): every edge of :math:`M` incident to :math:`a \in A`
-        connects it to a vertex of :math:`S`.
+        r"""Check property (P2): every :math:`M`-edge incident to
+        :math:`a \in A` meets a vertex of :math:`S`.
+
+        Without (P2) the A-rematching scan can miss some valid partners
+        and the matching maintained in :math:`M^*` may lose edges.
+
+        Returns:
+            ``True`` iff (P2) holds for every :math:`a \in A`.
+
+        Complexity:
+            :math:`O(n + m)`.
         """
         for a in self.A:
             for w in self.neighbors_in_M(a):
@@ -105,7 +216,19 @@ class ZSubgraphSystem:
         return True
 
     def check_lambda_lists(self) -> bool:
-        r"""Check that each :math:`\Lambda(u)` equals :math:`N_G(u) \cap (B \cup U)`."""
+        r"""Check that each :math:`\Lambda(u)` equals :math:`N_G(u) \cap (B \cup U)`.
+
+        The cached list must agree with the current graph state; stale
+        lists are the source of the regression caught by
+        ``tests/test_fdmm.py::test_rematch_u_no_phantom_edge_from_stale_list``.
+
+        Returns:
+            ``True`` iff every cached list is current.
+
+        Complexity:
+            :math:`O(n + m)` dominated by the recomputation of the
+            expected lists.
+        """
         for u in self.U:
             expected = sorted(
                 w for w in self.graph.neighbors(u) if w in self.B or w in self.U
@@ -116,7 +239,16 @@ class ZSubgraphSystem:
         return True
 
     def check_L_lists(self) -> bool:
-        r"""Check that each :math:`L(a)` equals :math:`N_G(a) \cap U`."""
+        r"""Check that each :math:`L(a)` equals :math:`N_G(a) \cap U`.
+
+        Symmetric to :meth:`check_lambda_lists` but for :math:`A`-vertices.
+
+        Returns:
+            ``True`` iff every cached list is current.
+
+        Complexity:
+            :math:`O(n + m)`.
+        """
         for a in self.A:
             expected = sorted(w for w in self.graph.neighbors(a) if w in self.U)
             actual = sorted(self.L_lists.get(a, []))
@@ -125,7 +257,22 @@ class ZSubgraphSystem:
         return True
 
     def check_all_invariants(self) -> bool:
-        """Return ``True`` iff every invariant of the :math:`z`-system holds."""
+        """Return ``True`` iff every invariant of the :math:`z`-system holds.
+
+        Equivalent to a logical AND of:
+        :meth:`check_degree_bounds`,
+        :meth:`check_U_degree_in_U`,
+        :meth:`check_P1`,
+        :meth:`check_P2`,
+        :meth:`check_lambda_lists`, and
+        :meth:`check_L_lists`.
+
+        Returns:
+            ``True`` iff the system is legal.
+
+        Complexity:
+            :math:`O(n + m)`.
+        """
         return (
             self.check_degree_bounds()
             and self.check_U_degree_in_U()
@@ -136,7 +283,16 @@ class ZSubgraphSystem:
         )
 
     def build_lambda_and_L(self) -> None:
-        r"""Recompute :math:`\Lambda(u)` and :math:`L(a)` from the current graph."""
+        r"""Recompute :math:`\Lambda(u)` and :math:`L(a)` from the current graph.
+
+        Call this whenever the host graph has been mutated so that the
+        cached lists stay consistent.  Mutates ``self.lambda_lists`` and
+        ``self.L_lists`` in place.
+
+        Complexity:
+            :math:`O(n + m)`.  The list is sorted to make
+            maximality-equality checks deterministic.
+        """
         self.lambda_lists = {
             u: sorted(w for w in self.graph.neighbors(u) if w in self.B or w in self.U)
             for u in self.U
@@ -147,7 +303,20 @@ class ZSubgraphSystem:
         }
 
     def is_maximal_matching(self, matching: Matching) -> bool:
-        """Return ``True`` iff ``matching`` is maximal in the current ``graph``."""
+        """Return ``True`` iff ``matching`` is maximal in the current ``graph``.
+
+        Convenience wrapper around the global helper; lives here so tests
+        can assert maximality directly from a system instance.
+
+        Args:
+            matching: The candidate matching.
+
+        Returns:
+            ``True`` iff ``matching`` is maximal in ``self.graph``.
+
+        Complexity:
+            :math:`O(n + m)`.
+        """
         matched_vertices: set[Vertex] = set()
         for u, v in matching:
             matched_vertices.add(u)
@@ -174,6 +343,9 @@ class MultiLevelSystem:
         A2: Partition of level-1 :math:`A` into :math:`A_2`.
         N1: Subset :math:`N_1 \subseteq A_2 \cup B`.
         R1: :math:`R_1 = V \setminus (A_1 \cup N_1)`.
+
+    Thread-safety:
+        Not thread-safe.
     """
 
     graph: DynamicGraph
@@ -190,7 +362,12 @@ class MultiLevelSystem:
         At most :math:`O(r / z)` vertices of :math:`A_1` are matched to
         :math:`R_1`.  The exact constant is not provided in the paper excerpt,
         so this method raises :class:`NotImplementedError` to prevent silent
-        false positives.
+        false positives.  Callers that need a boolean answer should use
+        :func:`fdmm.invariants.check_multi_level_i3`, which converts the
+        error into ``False``.
+
+        Raises:
+            NotImplementedError: Always -- the precise constant is unknown.
         """
         raise NotImplementedError(
             "I3 check requires an exact constant not provided in the paper excerpt."
@@ -207,31 +384,46 @@ def _edge_switch_inside_B(
 ) -> bool:
     r"""Perform edge-switching inside :math:`B` to free capacity for ``u``.
 
-    When a U-vertex ``u`` has at least ``z`` B-neighbours but some of those
-    B-neighbours are saturated in M, we find an alternating path from ``u``
-    through saturated B-B edges and perform a chain of swaps.
+    When ``u`` already has :math:`\deg_M(u) < z` matching edges to B-
+    neighbours but every B-neighbour is saturated in :math:`M`, we cannot
+    add ``(u, b)`` directly.  Instead we look for an alternating path
+    that starts at a saturated B-neighbour and ends at some unsaturated
+    B-vertex, and flip the edges along it.  This is the analogue of the
+    "augmenting path" used in classical matching algorithms.
 
-    The alternating path: u -- b1 (free) ... b_i -- b_{i+1} (in M) ... b_k (free)
-    After flipping: u matched to b1, each intermediate pair stays matched via shifted
-    edges, and b_k is freed.
+    The alternating path has the form::
+
+        u -- b_start (free)  →  b_1 (saturated)  →
+        b_2 (free)           →  b_3 (saturated)  →  ...  →
+        b_k (unsaturated)
+
+    State ``parity == 0`` means we arrived via a non-:math:`M` edge and
+    the next step must follow an :math:`M` edge.  State ``parity == 1``
+    means we arrived via an :math:`M` edge and the next step must follow
+    a non-:math:`M` edge inside :math:`B`.
 
     Args:
         graph: The underlying graph.
-        M: Current edge set M (modified in place).
-        deg_M: Degree of each vertex in M (modified in place).
+        M: Current edge set :math:`M` (mutated in place on success).
+        deg_M: Degree of each vertex in :math:`M` (mutated in place).
         z: Degree parameter.
         u: The U-vertex to promote.
-        b_neighbors: B-neighbours of u in the graph.
+        b_neighbors: B-neighbours of ``u`` in the graph.
 
     Returns:
-        True if a valid edge-switch was found and applied.
+        ``True`` if a valid edge-switch was found and applied.
+
+    Complexity:
+        Bounded by the number of B-vertices searched; in the worst case
+        :math:`O(m)`.
     """
     saturated_b = [b for b in b_neighbors if deg_M[b] >= z]
 
     for b_start in saturated_b:
-        # BFS to find alternating path through saturated B-B M-edges
-        # State: (vertex, parity) where parity=0 means we arrived via non-M edge
-        #   and parity=1 means we arrived via M edge
+        # ``parent`` maps (vertex, parity) to its predecessor.  We seed
+        # the search at ``b_start`` with parity 0 -- the hypothetical
+        # edge ``(u, b_start)`` is not yet in M, so we arrived there via
+        # a non-M edge.
         parent: dict[tuple[Vertex, int], tuple[Vertex, int] | None] = {
             (b_start, 0): None
         }
@@ -243,22 +435,28 @@ def _edge_switch_inside_B(
             curr, parity = queue.popleft()
 
             if parity == 0:
-                # We arrived at curr via a non-M edge.
-                # Next step: follow M-edge from curr (if it exists and stays in B)
+                # Arrived via a non-M edge; the next alternating step
+                # must follow an M edge from ``curr`` to a B vertex.
                 for w in graph.neighbors(curr):
                     e = canonical_edge(curr, w)
                     if e in M and w in graph.adj[curr]:
                         if (w, 1) not in parent:
                             parent[(w, 1)] = (curr, 0)
+                            # Short-circuit: if ``w`` is unsaturated in
+                            # M, we have found an end of the augmenting
+                            # path we can use to recover capacity.
                             if deg_M[w] < z:
                                 target = (w, 1)
                                 break
                             queue.append((w, 1))
             else:
-                # We arrived at curr via an M edge (curr is saturated).
-                # Next step: follow non-M edge to another B vertex (B-B edge not in M)
+                # Arrived via an M edge (``curr`` is saturated); the
+                # next step must follow a non-M edge to another B vertex
+                # (the B-B alternating edge).
                 for w in graph.neighbors(curr):
                     if w == u:
+                        # Defensive: avoid stepping back onto ``u`` even
+                        # though ``u`` is in U, not B.
                         continue
                     e = canonical_edge(curr, w)
                     if e not in M and w in graph.neighbors(curr):
@@ -270,9 +468,11 @@ def _edge_switch_inside_B(
                             queue.append((w, 0))
 
         if target is None:
+            # No augmenting path starting from this ``b_start``; try the
+            # next saturated B-neighbour of ``u``.
             continue
 
-        # Reconstruct the alternating path and perform flips
+        # Reconstruct the alternating path by unwinding ``parent``.
         path: list[tuple[Vertex, int]] = []
         node: tuple[Vertex, int] | None = target
         while node is not None:
@@ -280,26 +480,28 @@ def _edge_switch_inside_B(
             node = parent[node]
         path.reverse()
 
-        # Extract vertices from the path (ignore parity in the vertex sequence)
+        # Strip parity: we only need vertex order for the flip.
         vertices = [v for v, _ in path]
 
-        # Add the u-b_start edge
+        # Step 1: add the missing edge (u, b_start) to M.  ``b_start``
+        # was saturated before this; the subsequent flips will recover
+        # one slot by re-routing that capacity.
         e_ub = canonical_edge(u, b_start)
         M.add(e_ub)
         deg_M[u] += 1
         deg_M[b_start] += 1
 
-        # Flip alternating edges along the path
+        # Step 2: flip alternating edges along the path.  Edges tagged
+        # parity-0 were not in M and must enter M; edges tagged parity-1
+        # were in M and must leave M.
         for i in range(len(vertices) - 1):
             e = canonical_edge(vertices[i], vertices[i + 1])
             _, p = path[i]
             if p == 0:
-                # This edge was not in M, add it
                 M.add(e)
                 deg_M[vertices[i]] += 1
                 deg_M[vertices[i + 1]] += 1
             else:
-                # This edge was in M, remove it
                 M.discard(e)
                 deg_M[vertices[i]] -= 1
                 deg_M[vertices[i + 1]] -= 1
@@ -317,18 +519,39 @@ def _promote_u_vertex(
     z: int,
     u: Vertex,
 ) -> bool:
-    """Try to promote U-vertex ``u`` to B by finding z matching edges to B-neighbours.
+    r"""Try to promote a U-vertex ``u`` to :math:`B` by giving it
+    :math:`z` matching edges to B-neighbours.
 
-    Uses edge-switching inside B when B-neighbours are saturated.
+    The procedure runs in two phases.  First, it greedily adds edges
+    from ``u`` to unsaturated B-neighbours until either ``z`` such edges
+    exist or no unsaturated neighbour remains.  Second, it invokes
+    :func:`_edge_switch_inside_B` to recover capacity from saturated
+    B-vertices until the count reaches ``z``.
+
+    After promotion, ``u`` is moved from ``U`` to ``B``; any B-vertex
+    that ends up with no remaining :math:`M`-edge to a U-vertex is
+    promoted to ``A`` to keep the partition clean.
+
+    Args:
+        graph: The host graph.
+        system: System being updated (its ``A``/``B``/``U`` are mutated).
+        M: Current :math:`M` edge set (mutated).
+        deg_M: :math:`M`-degree dictionary (mutated).
+        z: Degree parameter.
+        u: The U-vertex to consider for promotion.
 
     Returns:
-        True if u was successfully promoted.
+        ``True`` iff ``u`` ended up with :math:`\deg_M(u) = z` and was
+        moved to ``B``.
     """
     b_neighbors = [w for w in graph.neighbors(u) if w in system.B]
     if len(b_neighbors) < z:
+        # Cannot reach the cap even with every neighbour -- leave u in U.
         return False
 
-    # Phase 1: Direct edges to unsaturated B-neighbours
+    # Phase 1: take edges to unsaturated B-neighbours.  The check
+    # ``e not in M`` guards against adding the same edge twice during
+    # repeated calls of this routine.
     added = 0
     for w in b_neighbors:
         if added >= z:
@@ -341,19 +564,24 @@ def _promote_u_vertex(
                 deg_M[w] += 1
                 added += 1
 
-    # Phase 2: If not enough direct edges, try edge-switching inside B
+    # Phase 2: for any remaining slots, run augmenting-path switches
+    # that reclaim capacity by re-routing saturated B-edges.
     if added < z:
         needed = z - added
         for _ in range(needed):
             if _edge_switch_inside_B(graph, M, deg_M, z, u, b_neighbors):
                 added += 1
             else:
+                # Out of recoverable capacity -- leave u in U.
                 break
 
     if deg_M[u] == z:
         system.U.discard(u)
         system.B.add(u)
-        # Check if any B-vertex lost all its M-edges to U and promote to A
+        # Promote any B-vertex that lost all of its M-edges to U.
+        # Such vertices no longer match any U partner, which violates
+        # the spirit of the partition (B is meant to provide edges
+        # into U).
         for w in graph.neighbors(u):
             if w in system.B:
                 has_M_to_U = False
@@ -371,17 +599,48 @@ def _promote_u_vertex(
 def build_z_system(graph: DynamicGraph, z: int) -> ZSubgraphSystem:
     r"""Build a :math:`z`-subgraph system from scratch.
 
-    This implements the two-step deterministic construction described in the
-    paper (Section 5.2).  Step 1 builds a greedy maximal M with degree cap z.
-    Step 2 promotes U-vertices to B via direct edge addition and edge-switching
-    inside B, as described in the paper.
+    Implements the two-step deterministic construction from Section 5.2
+    of the paper.
 
-    **Fidelity note:** Step 2 uses an alternating-path edge-switching heuristic
-    that approximates the paper's exact switching rule.  The paper states that
-    edge-switching inside B preserves degree bounds; our implementation achieves
-    this via BFS-based augmenting paths.
+    Step 1 -- greedy maximal :math:`M` with the degree cap ``z``::
+
+        For each edge (u, v) in sorted order:
+            if deg_M(u) < z and deg_M(v) < z:
+                add (u, v) to M; increment both degrees.
+
+    The initial partition is then derived from :math:`M`:
+
+    * :math:`v \in S := A \cup B` iff :math:`\deg_M(v) = z`,
+    * :math:`v \in A` iff :math:`v \in S` and every :math:`M`-neighbour of
+      ``v`` is also in :math:`S`,
+    * :math:`v \in B` iff :math:`v \in S` and some :math:`M`-neighbour of
+      ``v`` lies in :math:`U`,
+    * :math:`v \in U` iff :math:`\deg_M(v) < z`.
+
+    Step 2 -- promote U-vertices to B until no further promotion is
+    possible.  Promotion is handled by :func:`_promote_u_vertex` which
+    tries direct edges first and falls back to edge-switching inside B.
+
+    **Fidelity note:** Step 2 uses an alternating-path edge-switching
+    heuristic that approximates the paper's exact switching rule.  The
+    paper states that edge-switching inside B preserves degree bounds;
+    our implementation achieves this via BFS-based augmenting paths.
+
+    Args:
+        graph: The host graph.
+        z: The degree parameter (``z >= 1``).
+
+    Returns:
+        A :class:`ZSubgraphSystem` satisfying every invariant checked
+        by :meth:`ZSubgraphSystem.check_all_invariants`.
+
+    Complexity:
+        :math:`O(n + m)` per promotion round; the number of rounds is
+        bounded by a polynomial in ``n`` so the overall construction is
+        polynomial.  Empirically the loop converges in a handful of
+        rounds on sparse inputs.
     """
-    # Step 1: greedy maximal M with degree cap z.
+    # --- Step 1: greedy maximal M with degree cap z ---
     M: set[Edge] = set()
     deg_M: dict[Vertex, int] = {v: 0 for v in range(graph.n)}
     edges = sorted(graph.edges())
@@ -392,6 +651,8 @@ def build_z_system(graph: DynamicGraph, z: int) -> ZSubgraphSystem:
             deg_M[u] += 1
             deg_M[v] += 1
 
+    # --- Partition: S are saturated; A/B differ on whether an S-vertex
+    # has an M-edge reaching into U.
     S = {v for v in range(graph.n) if deg_M[v] == z}
     U_set = {v for v in range(graph.n) if deg_M[v] < z}
     A: set[Vertex] = set()
@@ -410,10 +671,10 @@ def build_z_system(graph: DynamicGraph, z: int) -> ZSubgraphSystem:
     system = ZSubgraphSystem(graph=graph, z=z, A=A, B=B, U=U_set, M=M)
     system.build_lambda_and_L()
 
-    # Step 2: process U-vertices to fix P1 and promote to B.
-    # Paper: "If u has at least z neighbors in B, insert edges from u to B
-    # into M until u is incident to exactly z such edges, then move u into B."
-    # "Edge-switching inside B preserves degree bounds."
+    # --- Step 2: iteratively promote U-vertices to B.  We keep looping
+    # until one full pass through U makes no further changes; the
+    # ``changed`` flag avoids re-scanning vertices that have already been
+    # moved out of U.
     changed = True
     while changed:
         changed = False
@@ -429,27 +690,52 @@ def build_z_system(graph: DynamicGraph, z: int) -> ZSubgraphSystem:
 def build_multi_level_system(
     graph: DynamicGraph, level_zs: list[int]
 ) -> MultiLevelSystem:
-    r"""Build a multi-level system by recursive derivation from finer to coarser levels.
+    r"""Build a multi-level system by stacking independent levels.
 
-    This implements the paper's recursive construction (Section 6.2).  Given a
-    :math:`z_{i-1}`-system, we derive a :math:`z_i`-system via edge-colouring
-    partition and recursive refinement.
+    Each level is constructed by :func:`build_z_system` on the same
+    graph but with its own :math:`z` value.  After building the levels,
+    the partition of the level-1 :math:`A`-set into :math:`A_1` and
+    :math:`A_2` and the derived sets :math:`N_1`, :math:`R_1` are
+    computed deterministically by sorting :math:`A` and splitting it
+    in half.
 
-    **Fidelity note:** The paper describes deriving a :math:`z_i`-system from a
+    **Fidelity note:** The paper derives a :math:`z_i`-system from a
     :math:`z_{i-1}`-system in :math:`O(n^{1+o(1)} z_1)` time, faster than
-    rebuilding when the graph is dense.  We implement the natural reconstruction:
-    build each level independently from the current graph, preserving all
-    invariants.  The recursive derivation mechanics (edge-set selection E'_D,
-    list inheritance) are described at high level but lack pseudocode.
+    rebuilding when the graph is dense.  We implement the natural
+    reconstruction: build each level independently from the current
+    graph, preserving all invariants.  The recursive derivation
+    mechanics (edge-set selection :math:`E'_D`, list inheritance) are
+    described at high level but lack pseudocode in the excerpt, so we
+    opt for the clearer (and empirically sufficient for stress tests)
+    independent rebuild.
+
+    Args:
+        graph: The host graph.
+        level_zs: Strictly decreasing positive integers giving the
+            :math:`z` value of each level (finest first).
+
+    Returns:
+        A :class:`MultiLevelSystem` whose ``levels`` list contains one
+        entry per :math:`z` value.
+
+    Complexity:
+        Linear in the number of levels times the cost of
+        :func:`build_z_system`.
     """
     multi = MultiLevelSystem(graph=graph, k=len(level_zs))
 
+    # Levels are rebuilt independently for clarity, even though the
+    # paper describes a recursive refinement.
     for z in level_zs:
         level = build_z_system(graph, z)
         multi.levels.append(level)
 
     if multi.levels:
         level1 = multi.levels[0]
+        # Split level-1 A deterministically by sorted order.  The paper
+        # description of which side becomes A_1 versus A_2 is left
+        # abstract; using a sorted split keeps the construction
+        # reproducible across runs.
         sorted_A = sorted(level1.A)
         split = len(sorted_A) // 2
         multi.A1 = set(sorted_A[:split])

@@ -1,6 +1,20 @@
 """Command-line interface for the FDMM reproduction.
 
-This is an engineering utility, not part of the paper's baseline algorithm.
+A thin wrapper around :class:`DynamicMaximalMatching` plus the
+:func:`random_update_sequence` generator.  It is useful as a smoke
+test: it runs a fixed number of random updates, asserts maximality
+after each one, and prints timing statistics on exit.
+
+This is an engineering utility, not part of the paper's baseline
+algorithm.
+
+Example::
+
+    $ fdmm --n 50 --mode basic --updates 1000 --seed 7
+    Completed 1000 updates in 0.08s
+    Final edges: 463
+    Matching size: 25
+    Maximal: True
 """
 
 from __future__ import annotations
@@ -15,6 +29,16 @@ from fdmm.simulation import random_update_sequence
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Entry point for the ``fdmm`` console script.
+
+    Args:
+        argv: Optional list of arguments.  When ``None`` (the default)
+            :mod:`argparse` reads from ``sys.argv``.
+
+    Returns:
+        Process exit code: ``0`` on success, ``1`` if maximality was
+        violated at any step.
+    """
     parser = argparse.ArgumentParser(
         description="Fully Dynamic Maximal Matching (FDMM) demo"
     )
@@ -42,6 +66,8 @@ def main(argv: list[str] | None = None) -> int:
         else:
             algo.delete_edge(u, v)
         if not algo.is_maximal():
+            # Maximality is the basic correctness invariant of the
+            # algorithm; if it ever fails the reproduction has a bug.
             print(f"ERROR: Matching not maximal after {op} ({u},{v})")
             return 1
     elapsed = time.perf_counter() - start

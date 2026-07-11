@@ -1,6 +1,31 @@
 """FDMM: A Faster Deterministic Algorithm for Fully Dynamic Maximal Matching.
 
-Python reproduction of arXiv:2605.00797v1.
+This package is a pure-Python reproduction of the deterministic fully
+dynamic maximal matching algorithm of Chuzhoy, Khanna, and Song
+(arXiv:2605.00797v1, STOC 2026).
+
+Two operating modes are exposed through :class:`DynamicMaximalMatching`:
+
+* ``"basic"`` -- :math:`\tilde O(n^{2/3})` amortised update time via a
+  single-level :math:`z`-subgraph system.
+* ``"multilevel"`` -- :math:`n^{1/2+o(1)}` amortised update time via a
+  recursive :math:`k`-level system with :math:`k = \\Theta(\\log n)`.
+
+The supporting modules provide:
+
+* :class:`DynamicGraph` -- a thin adjacency-set wrapper that stands in
+  for the paper's BST-based adjacency layer.
+* :class:`ZSubgraphSystem` and :class:`MultiLevelSystem` -- the
+  combinatorial state used by both modes.
+* :func:`check_maximal_matching` and :func:`check_z_system_invariants`
+  -- standalone invariant validators used by the test suite.
+* :class:`UpdateAccountant` and the :mod:`fdmm.simulation` /
+  :mod:`fdmm.parallel` modules -- engineering utilities for empirical
+  benchmarking and reproducibility.
+
+Reference:
+    Chuzhoy, J., Khanna, S., Song, J. (2026).  *A Faster Deterministic
+    Algorithm for Fully Dynamic Maximal Matching*.  arXiv:2605.00797v1.
 """
 
 from fdmm.accounting import UpdateAccountant

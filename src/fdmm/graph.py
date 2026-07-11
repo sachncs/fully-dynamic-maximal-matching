@@ -5,6 +5,24 @@ search trees to support :math:`O(\log n)` insertion, deletion, and lookup.
 In this Python reproduction we use the built-in ``set`` type, which provides
 amortised :math:`O(1)` operations.  The asymptotic guarantees of the
 algorithm are preserved; only the hidden constant factors differ.
+
+Responsibilities:
+    * Maintain the live edge set under online insertions and deletions.
+    * Provide neighbour and edge iterators that yield every edge exactly
+      once in canonical form.
+    * Validate vertex labels and reject invalid inputs early.
+
+Interactions:
+    * Used as the storage layer by the dynamic matcher in
+      :mod:`fdmm.dynamic_matching`.
+    * The greedy matching helpers in :mod:`fdmm.matching` read only.
+    * The :mod:`fdmm.z_system` module reads adjacency when reconstructing
+      :math:`\Lambda` and :math:`L` lists.
+
+Thread-safety:
+    * Instances are **not** thread-safe.  Each ``DynamicMaximalMatching``
+      owns one ``DynamicGraph`` and is intended to be used from a single
+      thread.  Concurrent access would require external locking.
 """
 
 from __future__ import annotations
@@ -16,6 +34,12 @@ from fdmm.types import Edge, Vertex
 
 class DynamicGraph:
     """A simple undirected graph that supports dynamic edge insertions and deletions.
+
+    Vertices are dense integer labels ``0 .. n-1`` fixed at construction.
+    Self-loops are silently ignored (or rejected when ``strict=True``).
+    Each undirected edge is stored once in the adjacency set of both
+    endpoints, but iteration yields the canonical form ``(u, v)`` with
+    ``u < v`` so callers see every edge exactly once.
 
     Attributes:
         n: Number of vertices (fixed at construction).
@@ -31,6 +55,9 @@ class DynamicGraph:
 
         Raises:
             ValueError: If ``n`` is negative.
+
+        Complexity:
+            ``O(n)`` time and space for the adjacency list of empty sets.
         """
         if n < 0:
             raise ValueError(f"n must be non-negative, got {n}")
@@ -39,7 +66,7 @@ class DynamicGraph:
         self.edge_count: int = 0
 
     def add_edge(self, u: Vertex, v: Vertex, *, strict: bool = False) -> None:
-        """Insert an undirected edge ``(u, v)``.
+        r"""Insert an undirected edge ``(u, v)``.
 
         Duplicate insertions are silently ignored unless ``strict`` is ``True``.
 
@@ -51,6 +78,11 @@ class DynamicGraph:
         Raises:
             ValueError: If either endpoint is out of range, or if ``strict``
                 is ``True`` and the edge is a self-loop or already exists.
+
+        Complexity:
+            Amortised :math:`O(1)` thanks to hash-based sets.  In the
+            paper's intended implementation using balanced BSTs this
+            would be :math:`O(\log n)`.
         """
         self.validate_vertex(u)
         self.validate_vertex(v)
@@ -80,6 +112,9 @@ class DynamicGraph:
         Raises:
             ValueError: If either endpoint is out of range, or if ``strict``
                 is ``True`` and the edge does not exist.
+
+        Complexity:
+            Amortised :math:`O(1)`; see :meth:`add_edge` for context.
         """
         self.validate_vertex(u)
         self.validate_vertex(v)
@@ -101,6 +136,9 @@ class DynamicGraph:
 
         Raises:
             ValueError: If either endpoint is out of range.
+
+        Complexity:
+            Amortised :math:`O(1)`.
         """
         self.validate_vertex(u)
         self.validate_vertex(v)
@@ -114,12 +152,15 @@ class DynamicGraph:
 
         Raises:
             ValueError: If ``v`` is out of range.
+
+        Complexity:
+            :math:`O(1)`.
         """
         self.validate_vertex(v)
         return len(self.adj[v])
 
     def neighbors(self, v: Vertex) -> Iterator[Vertex]:
-        """Iterate over the neighbours of ``v``.
+        r"""Iterate over the neighbours of ``v``.
 
         Args:
             v: The vertex.
@@ -129,6 +170,9 @@ class DynamicGraph:
 
         Raises:
             ValueError: If ``v`` is out of range.
+
+        Complexity:
+            :math:`O(\deg(v))` to drain the iterator.
         """
         self.validate_vertex(v)
         yield from self.adj[v]
@@ -138,6 +182,10 @@ class DynamicGraph:
 
         Yields:
             Canonical edges ``(u, v)`` with ``u < v``.
+
+        Complexity:
+            :math:`O(m)` to enumerate every edge, where :math:`m = |E|`.
+            The ``u < v`` guard avoids double-counting symmetric pairs.
         """
         for u in range(self.n):
             for v in self.adj[u]:
@@ -145,7 +193,12 @@ class DynamicGraph:
                     yield (u, v)
 
     def num_edges(self) -> int:
-        """Return the number of edges in the graph."""
+        """Return the number of edges in the graph.
+
+        Complexity:
+            :math:`O(1)`.  We cache the count on every update rather than
+            summing degrees, which would be :math:`O(n)`.
+        """
         return self.edge_count
 
     def validate_vertex(self, v: Vertex) -> None:
@@ -158,7 +211,14 @@ class DynamicGraph:
             raise ValueError(f"Vertex {v} out of range [0, {self.n})")
 
     def copy(self) -> DynamicGraph:
-        """Return a shallow copy of the graph."""
+        """Return a shallow copy of the graph.
+
+        The new instance owns fresh adjacency sets; mutating either graph
+        afterwards does not affect the other.
+
+        Complexity:
+            :math:`O(n + m)` because every adjacency set must be cloned.
+        """
         g = DynamicGraph(self.n)
         for u in range(self.n):
             g.adj[u] = set(self.adj[u])

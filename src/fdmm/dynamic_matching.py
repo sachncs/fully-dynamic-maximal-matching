@@ -5,6 +5,28 @@ maximal matching in a graph undergoing edge insertions and deletions.
 Both the basic :math:`\tilde O(n^{2/3})` version and the multi-level
 :math:`n^{1/2+o(1)}` version are provided.
 
+Responsibilities:
+    * Own the live :class:`fdmm.graph.DynamicGraph` and the maintained
+      maximal matching :math:`M^*`.
+    * Keep an up-to-date :math:`z`-system (or :math:`k`-level system) and
+      the auxiliary directed graph :math:`H`.
+    * Dispatch each update through the procedure-specific handlers in
+      :mod:`fdmm.updates`.
+    * Surface a small query / statistics API for callers and tests.
+
+Algorithm sketch:
+
+    The algorithm decomposes the vertex set into :math:`A, B, U` where
+    :math:`S = A \cup B` is the set of vertices that are saturated in
+    :math:`M` (degree exactly ``z`` in :math:`M`) and ``U`` is the rest.
+    A first colour class of an edge-colouring of :math:`M` is used as a
+    "seed" matching :math:`M_1`; greedily extending :math:`M_1` to a
+    maximal matching in :math:`G` gives the reported :math:`M^*`.
+    Updates are handled locally by scanning the cached lists
+    :math:`\Lambda(u)` and :math:`L(a)` (of size :math:`O(z)` for the
+    basic algorithm), with a full rebuild after every
+    ``phase_length = n^{4/3}`` updates to amortise the rebuild cost.
+
 **Fidelity notes**
 - Several internal procedures (``ProcRematchA``, full phase initialisation,
   exact rebuild schedules) are referenced in the paper but their pseudocode
@@ -14,6 +36,11 @@ Both the basic :math:`\tilde O(n^{2/3})` version and the multi-level
   :math:`z_{i-1}`-system via edge-colouring partition is implemented
   faithfully at high level, but some corner-case handling follows the
   natural invariant-preserving fallback rather than verbatim pseudocode.
+
+Thread-safety:
+    Each ``DynamicMaximalMatching`` instance is intended to be used from
+    a single thread.  Concurrent updates on the same instance are not
+    supported.
 """
 
 from __future__ import annotations
@@ -31,16 +58,57 @@ from fdmm.z_system import MultiLevelSystem, ZSubgraphSystem, build_z_system
 
 
 class DynamicMaximalMatching:
-    """Maintains a maximal matching under edge insertions and deletions.
+    r"""Maintains a maximal matching under edge insertions and deletions.
 
     The algorithm can operate in two modes:
 
-    * ``basic`` --- the :math:`\tilde O(n^{2/3})` version (single level).
-    * ``multilevel`` --- the :math:`n^{1/2+o(1)}` version.
+    * ``"basic"`` --- the :math:`\tilde O(n^{2/3})` version (single level).
+    * ``"multilevel"`` --- the :math:`n^{1/2+o(1)}` version with
+      :math:`k = \Theta(\log n)` levels.
+
+    The instance is stateful: every :meth:`insert_edge` and
+    :meth:`delete_edge` mutates ``self.graph`` and ``self.M_star`` and
+    may trigger a full rebuild of the supporting :math:`z`-system.  Use
+    :meth:`statistics` to inspect the amortised cost.
+
+    Attributes:
+        n: Number of vertices (fixed).
+        mode: ``"basic"`` or ``"multilevel"``.
+        graph: The underlying :class:`DynamicGraph`.
+        M_star: The maintained maximal matching.
+        matched_vertices: Convenience cache of vertices incident to
+            some edge of ``M_star``; kept in sync with ``M_star``.
+        z: Degree parameter of the active :math:`z`-system.
+        phase_length: Number of updates between full rebuilds.
+        subphase_length: Number of updates between lightweight :math:`M_1`
+            augmentations.
+        update_count: Number of updates since the last full rebuild.
+        subphase_count: Number of subphase augmentations performed.
+        system: Active :math:`z`-system, or ``None``.
+        matchings: Colour classes of the most recent edge-colouring of
+            ``system.M`` (only ``z + 1`` of them, indexed ``0 .. z``).
+        M1: First colour class, kept as the seed for :math:`M^*`.
+        multi: Multi-level system, present in ``"multilevel"`` mode.
+        level_zs: Per-level :math:`z` values in decreasing order.
+        k: Number of levels in ``multi``.
+        H_out: Outgoing arcs of the directed auxiliary graph :math:`H`.
+        accountant: Bookkeeping counters from :class:`UpdateAccountant`.
 
     Args:
-        n: Number of vertices (fixed).
+        n: Number of vertices (fixed for the lifetime of the instance).
         mode: Either ``"basic"`` or ``"multilevel"``.
+
+    Raises:
+        ValueError: If ``n`` is negative or ``mode`` is unknown.
+
+    Example:
+        >>> algo = DynamicMaximalMatching(n=10, mode="basic")
+        >>> algo.insert_edge(0, 1)
+        >>> algo.insert_edge(2, 3)
+        >>> algo.is_maximal()
+        True
+        >>> sorted(algo.get_matching())
+        [(0, 1), (2, 3)]
     """
 
     def __init__(self, n: int, mode: str = "basic") -> None:
@@ -85,7 +153,12 @@ class DynamicMaximalMatching:
     # ------------------------------------------------------------------
 
     def init_basic(self) -> None:
-        """Set parameters for the basic :math:`O(n^{2/3})` algorithm."""
+        """Set parameters for the basic :math:`\tilde O(n^{2/3})` algorithm.
+
+        The defaults are
+        :math:`z = \\lceil n^{2/3} \rceil`, :math:`r = \\lceil n^{4/3} \rceil`,
+        and ``subphase_length = r // z``.
+        """
         self.z = math.ceil(self.n ** (2.0 / 3.0)) if self.n > 0 else 1
         self.phase_length = math.ceil(self.n ** (4.0 / 3.0)) if self.n > 0 else 1
         self.subphase_length = max(1, self.phase_length // self.z)
@@ -95,7 +168,10 @@ class DynamicMaximalMatching:
         r"""Set parameters for the multi-level algorithm.
 
         We set :math:`z_1 = n` and halve until :math:`z_k \approx \sqrt{n}`.
-        This gives :math:`k = \Theta(\log n)`.
+        This gives :math:`k = \Theta(\log n)` as prescribed by the paper.
+
+        The phase length and subphase length are reused from the basic
+        schedule so that amortisation analysis transfers unchanged.
         """
         if self.n <= 1:
             self.k = 1
@@ -119,7 +195,13 @@ class DynamicMaximalMatching:
     # ------------------------------------------------------------------
 
     def rebuild_basic(self) -> None:
-        """Rebuild the basic :math:`z`-system from scratch."""
+        """Rebuild the basic :math:`z`-system from scratch.
+
+        Re-runs :func:`fdmm.z_system.build_z_system`, partitions the
+        resulting :math:`M`, rebuilds :math:`M^*`, and resets the
+        update counters.  This is an ``O(n + m)`` operation in the
+        amortised budget of the algorithm.
+        """
         self.system = build_z_system(self.graph, self.z)
         self.partition_m_into_matchings()
         self.rebuild_m_star_incremental()
@@ -131,8 +213,9 @@ class DynamicMaximalMatching:
     def rebuild_multilevel(self) -> None:
         """Rebuild the multi-level system.
 
-        Uses recursive derivation: build each level from the graph,
-        then partition M for the finest level.
+        Recreates every level from the current graph and re-partitions
+        the finest level.  This is more expensive than a basic rebuild
+        but is amortised over ``phase_length`` updates.
         """
         self.multi = MultiLevelSystem(graph=self.graph, k=self.k)
         self.multi.levels = []
@@ -152,6 +235,9 @@ class DynamicMaximalMatching:
             )
 
         if self.multi.levels:
+            # Use the coarsest level for the matching partition; its
+            # smaller ``z`` keeps ``z + 1`` small and so bounds the
+            # number of colour classes produced.
             self.system = self.multi.levels[-1]
             self.z = self.level_zs[-1]
             self.subphase_length = max(1, self.phase_length // self.z)
@@ -176,6 +262,12 @@ class DynamicMaximalMatching:
 
         The paper uses this to obtain :math:`M_1, \dots, M_{z+1}`.  We keep
         the first matching as ``self.M1``.
+
+        Raises:
+            RuntimeError: If the colouring routine returns a colour
+                outside ``[0, z]``.  This guards against silent data
+                corruption if the underlying colouring implementation
+                changes.
         """
         if self.system is None:
             self.M1 = set()
@@ -211,9 +303,14 @@ class DynamicMaximalMatching:
     def rebuild_m_star_incremental(self) -> None:
         r"""Rebuild :math:`M^*` starting from :math:`M_1` and extending greedily.
 
-        This is the paper's approach: start with M_1 (the first colour class
-        from edge-colouring) and extend to a maximal matching by greedily
-        adding edges to unmatched vertices.
+        This is the paper's approach: start with :math:`M_1` (the first
+        colour class from edge-colouring) and extend to a maximal
+        matching by greedily adding edges to unmatched vertices.  The
+        resulting matching contains :math:`M_1` and is therefore a
+        valid witness for the paper's amortisation argument.
+
+        Complexity:
+            :math:`O(n + m)` in the worst case.
         """
         if self.system is None:
             self.M_star = greedy_maximal_matching(self.graph)
@@ -247,6 +344,9 @@ class DynamicMaximalMatching:
         greedily add edges until maximality.  The paper likely maintains
         :math:`M^*` incrementally; we rebuild it from scratch for clarity
         and correctness.
+
+        Called when local repair in :mod:`fdmm.updates` cannot restore
+        maximality.
         """
         self.rebuild_m_star_incremental()
 
@@ -254,8 +354,15 @@ class DynamicMaximalMatching:
         r"""Rebuild the directed auxiliary graph :math:`H` on :math:`B \cup U`.
 
         In the paper, an unmatched :math:`u \in U` has outgoing edges to
-        :math:`\Lambda(u)` in :math:`H`.  This lets an unmatched :math:`b \in B`
-        check for an incoming edge.
+        :math:`\Lambda(u)` in :math:`H`.  This lets an unmatched
+        :math:`b \in B` cheaply check for an incoming edge and either
+        add it directly or recurse into a rematch.
+
+        Only unmatched vertices are included so that :math:`H` has size
+        bounded by the number of free vertices.
+
+        Complexity:
+            :math:`O(\sum_{u \in U} |\Lambda(u)|) \le O(m)`.
         """
         self.H_out = {}
         if self.system is None:
@@ -274,17 +381,14 @@ class DynamicMaximalMatching:
     # ------------------------------------------------------------------
 
     def check_subphase_boundary(self) -> bool:
-        r"""Check if we are at a subphase boundary and perform subphase maintenance.
+        r"""Trigger subphase maintenance of :math:`M_1` when due.
 
         Paper Section 6.1: "Divide each phase into subphases of
-        floor(r/z) updates.  At subphase boundaries, augment M_1 using
-        augmenting paths in M_i ∪ M_1."
-
-        This performs a lightweight repair of M_1 at subphase boundaries
-        without doing a full rebuild.
+        :math:`\lfloor r / z \rfloor` updates.  At subphase boundaries,
+        augment :math:`M_1` using augmenting paths in :math:`M_i \cup M_1`."
 
         Returns:
-            True if a subphase rebuild was triggered.
+            ``True`` iff a subphase rebuild was triggered by this call.
         """
         if self.update_count > 0 and self.update_count % self.subphase_length == 0:
             self.subphase_count += 1
@@ -297,10 +401,16 @@ class DynamicMaximalMatching:
     def _augment_m1_at_subphase_boundary(self) -> None:
         r"""Augment :math:`M_1` at a subphase boundary.
 
-        Paper: "augment M_1 using augmenting paths in M_i ∪ M_1 for an
-        appropriate M_i that still leaves few S-vertices unmatched."
+        Paper: "augment :math:`M_1` using augmenting paths in
+        :math:`M_i \cup M_1` for an appropriate :math:`M_i` that still
+        leaves few S-vertices unmatched."
 
-        We find short augmenting paths to restore the M_1 matching quality.
+        We find short augmenting paths to restore the :math:`M_1`
+        matching quality without paying for a full rebuild.
+
+        Complexity:
+            Bounded by the number of unmatched S-vertices times the
+            local BFS depth.
         """
         if self.system is None or not self.matchings:
             return
@@ -311,7 +421,7 @@ class DynamicMaximalMatching:
             matched_in_m1.add(u)
             matched_in_m1.add(v)
 
-        # For each unmatched S-vertex, try to find an augmenting path
+        # For each unmatched S-vertex, try to find an alternating path
         # that starts and ends at unmatched vertices
         for s in self.system.S:
             if s not in matched_in_m1:
@@ -321,9 +431,21 @@ class DynamicMaximalMatching:
     def _try_augment_m1(
         self, start: Vertex, matched_in_m1: set[Vertex]
     ) -> bool:
-        """Try to find an augmenting path for M_1 starting from ``start``.
+        r"""Try to find an augmenting path for :math:`M_1` starting from ``start``.
 
-        Uses BFS to find a short augmenting path through M_i ∪ M_1.
+        Uses BFS in the symmetric difference of :math:`M_1` and the
+        remaining colour classes, alternating between edges in
+        :math:`M_1` (entered via ``via_m1 == True``) and edges not in
+        :math:`M_1` (entered via ``via_m1 == False``).  When the search
+        reaches an unmatched vertex we flip the path to grow :math:`M_1`.
+
+        Args:
+            start: Unmatched vertex where the search originates.
+            matched_in_m1: Set of vertices currently matched in
+                :math:`M_1` (used as the termination condition).
+
+        Returns:
+            ``True`` iff an augmenting path was found and flipped.
         """
         # Simple BFS augmenting path search (limited depth for efficiency)
         from collections import deque
@@ -360,7 +482,13 @@ class DynamicMaximalMatching:
         return False
 
     def _flip_augmenting_path(self, path: list[Vertex]) -> None:
-        """Flip edges along an augmenting path to increase M_1 size."""
+        """Flip edges along an augmenting path to grow :math:`M_1`.
+
+        Alternating paths start and end at unmatched vertices, so every
+        even-indexed edge is absent from :math:`M_1` and every odd-
+        indexed edge (0-based) is present; flipping inverts this and
+        gains one matching edge overall.
+        """
         for i in range(0, len(path) - 1, 2):
             e = canonical_edge(path[i], path[i + 1])
             if e in self.M1:
@@ -375,6 +503,10 @@ class DynamicMaximalMatching:
     def insert_edge(self, u: Vertex, v: Vertex) -> None:
         """Insert edge ``(u, v)`` and repair the maximal matching.
 
+        The edge is first added to the underlying graph; the matching is
+        repaired by :func:`fdmm.updates.handle_insertion`, which knows
+        about the special ``A-U`` case from Observation 2.3 of the paper.
+
         Args:
             u: One endpoint.
             v: The other endpoint.
@@ -385,6 +517,10 @@ class DynamicMaximalMatching:
 
     def delete_edge(self, u: Vertex, v: Vertex) -> None:
         """Delete edge ``(u, v)`` and repair the maximal matching.
+
+        Deleting an edge that does not exist is a no-op (still counted as
+        a deletion for accounting).  Otherwise the matching is repaired by
+        :func:`fdmm.updates.handle_deletion`.
 
         Args:
             u: One endpoint.
@@ -399,7 +535,12 @@ class DynamicMaximalMatching:
         self.advance_update_counter()
 
     def advance_update_counter(self) -> None:
-        """Increment the update counter and trigger rebuilds as needed."""
+        """Increment the update counter and trigger rebuilds as needed.
+
+        Both the subphase boundary and the phase boundary are checked.
+        The phase boundary triggers a full rebuild of the :math:`z`-system
+        (or all levels, in multilevel mode).
+        """
         self.update_count += 1
 
         # Check subphase boundary
@@ -417,11 +558,24 @@ class DynamicMaximalMatching:
     # ------------------------------------------------------------------
 
     def get_matching(self) -> Matching:
-        """Return the current maximal matching :math:`M^*`."""
+        """Return a copy of the current maximal matching :math:`M^*`.
+
+        The returned set is detached from the algorithm's internal state,
+        so the caller may mutate it without affecting future updates.
+
+        Complexity:
+            :math:`O(|M^*|)` to copy.
+        """
         return set(self.M_star)
 
     def is_maximal(self) -> bool:
-        """Return ``True`` iff the current matching is maximal in the graph."""
+        """Return ``True`` iff the current matching is maximal in the graph.
+
+        Uses the standalone checker in :mod:`fdmm.invariants`.
+
+        Complexity:
+            :math:`O(n + m)`.
+        """
         return check_maximal_matching(self.graph, self.M_star)
 
     def matching_size(self) -> int:
@@ -429,15 +583,47 @@ class DynamicMaximalMatching:
         return len(self.M_star)
 
     def partner(self, v: Vertex) -> Vertex | None:
-        """Return the vertex matched to ``v`` in ``M_star``, or ``None``."""
+        """Return the vertex matched to ``v`` in :math:`M^*`, or ``None``.
+
+        Args:
+            v: The vertex to look up.
+
+        Returns:
+            ``v``'s partner in :math:`M^*`, or ``None`` if ``v`` is
+            unmatched.
+
+        Complexity:
+            :math:`O(|M^*|)`.  Use :meth:`build_partner_map` for repeated
+            lookups.
+        """
         return partner_of(self.M_star, v)
 
     def build_partner_map(self) -> dict[Vertex, Vertex]:
-        """Return a dict mapping each matched vertex to its partner."""
+        """Return a dict mapping each matched vertex to its partner.
+
+        Complexity:
+            :math:`O(|M^*|)` time and space.
+        """
         return {x: y for x, y in self.M_star} | {y: x for x, y in self.M_star}
 
     def statistics(self) -> dict[str, int]:
-        """Return a dictionary of runtime statistics."""
+        """Return a dictionary of runtime statistics.
+
+        Always-present keys:
+            * ``n`` -- vertex count,
+            * ``m`` -- current edge count,
+            * ``matching_size`` -- :math:`|M^*|`,
+            * ``updates_since_rebuild`` -- since the last full rebuild,
+            * ``phase_length`` / ``subphase_length`` -- schedule,
+            * ``subphase_count`` -- subphase repairs performed,
+            * ``z`` -- current degree parameter.
+
+        If a non-``None`` :class:`UpdateAccountant` is attached, every
+        counter from :meth:`UpdateAccountant.snapshot` is merged in.
+
+        Returns:
+            A flat ``dict[str, int]`` suitable for logging or CSV export.
+        """
         stats: dict[str, int] = {
             "n": self.n,
             "m": self.graph.num_edges(),
