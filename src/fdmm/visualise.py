@@ -49,10 +49,11 @@ def visualise_system(system: ZSubgraphSystem, width: int = 60) -> str:
     lines.append(separator)
     lines.append("Z-SUBGRAPH SYSTEM VISUALISATION")
     lines.append(separator)
-    lines.append(f"  n = {system.graph.n}   z = {system.z}   "
-                 f"|M| = {len(system.M)}")
-    lines.append(f"  |A| = {len(system.A)}   |B| = {len(system.B)}   "
-                 f"|U| = {len(system.U)}   |S| = {len(system.S)}")
+    lines.append(f"  n = {system.graph.n}   z = {system.z}   |M| = {len(system.M)}")
+    lines.append(
+        f"  |A| = {len(system.A)}   |B| = {len(system.B)}   "
+        f"|U| = {len(system.U)}   |S| = {len(system.S)}"
+    )
     lines.append(separator)
 
     # Vertex partition
@@ -130,9 +131,11 @@ def visualise_matching(algo: DynamicMaximalMatching, width: int = 60) -> str:
     lines.append("MATCHING STATE VISUALISATION")
     lines.append(separator)
     lines.append(f"  n = {algo.n}   mode = {algo.mode}   z = {algo.z}")
-    lines.append(f"  |E| = {algo.graph.num_edges()}   "
-                 f"|M*| = {len(algo.M_star)}   "
-                 f"maximal = {algo.is_maximal()}")
+    lines.append(
+        f"  |E| = {algo.graph.num_edges()}   "
+        f"|M*| = {len(algo.M_star)}   "
+        f"maximal = {algo.is_maximal()}"
+    )
     lines.append(f"  updates since rebuild = {algo.update_count}/{algo.phase_length}")
     lines.append(separator)
 
@@ -167,9 +170,7 @@ def visualise_matching(algo: DynamicMaximalMatching, width: int = 60) -> str:
     return "\n".join(lines)
 
 
-def visualise_graph_adjacency(
-    algo: DynamicMaximalMatching, width: int = 60
-) -> str:
+def visualise_graph_adjacency(algo: DynamicMaximalMatching, width: int = 60) -> str:
     """Return an ASCII adjacency list representation of the graph.
 
     Args:

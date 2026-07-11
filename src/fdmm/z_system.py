@@ -298,8 +298,7 @@ class ZSubgraphSystem:
             for u in self.U
         }
         self.L_lists = {
-            a: sorted(w for w in self.graph.neighbors(a) if w in self.U)
-            for a in self.A
+            a: sorted(w for w in self.graph.neighbors(a) if w in self.U) for a in self.A
         }
 
     def is_maximal_matching(self, matching: Matching) -> bool:

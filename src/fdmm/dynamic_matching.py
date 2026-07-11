@@ -184,9 +184,7 @@ class DynamicMaximalMatching:
                 z = max(1, z // 2)
             self.level_zs = zs
             self.k = len(zs)
-        self.phase_length = (
-            math.ceil(self.n ** (4.0 / 3.0)) if self.n > 0 else 1
-        )
+        self.phase_length = math.ceil(self.n ** (4.0 / 3.0)) if self.n > 0 else 1
         self.subphase_length = max(1, self.phase_length // self.z) if self.z > 0 else 1
         self.rebuild_multilevel()
 
@@ -230,9 +228,7 @@ class DynamicMaximalMatching:
             self.multi.A1 = set(sorted_A[:split])
             self.multi.A2 = set(sorted_A[split:])
             self.multi.N1 = self.multi.A2 | level1.B
-            self.multi.R1 = (
-                set(range(self.graph.n)) - (self.multi.A1 | self.multi.N1)
-            )
+            self.multi.R1 = set(range(self.graph.n)) - (self.multi.A1 | self.multi.N1)
 
         if self.multi.levels:
             # Use the coarsest level for the matching partition; its
@@ -428,9 +424,7 @@ class DynamicMaximalMatching:
                 # Try to find an alternating path to augment M_1
                 self.try_augment_m1(s, matched_in_m1)
 
-    def try_augment_m1(
-        self, start: Vertex, matched_in_m1: set[Vertex]
-    ) -> bool:
+    def try_augment_m1(self, start: Vertex, matched_in_m1: set[Vertex]) -> bool:
         r"""Try to find an augmenting path for :math:`M_1` starting from ``start``.
 
         Uses BFS in the symmetric difference of :math:`M_1` and the

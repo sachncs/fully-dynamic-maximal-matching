@@ -142,8 +142,7 @@ def abb_edge_color(graph: DynamicGraph, delta: int) -> Coloring:
                     graph, sorted(graph.edges()), 0, coloring, max_colors
                 ):
                     max_deg = (
-                        max(graph.degree(v_) for v_ in range(graph.n))
-                        if graph.n else 0
+                        max(graph.degree(v_) for v_ in range(graph.n)) if graph.n else 0
                     )
                     raise RuntimeError(
                         f"Unable to color graph with {max_colors} colours "
@@ -292,10 +291,7 @@ def vizing_edge_color(graph: DynamicGraph, delta: int) -> Coloring:
         # Classical Vizing gave up; restart with exponential search.
         coloring.clear()
         if not backtrack_color(graph, edges, 0, coloring, max_colors):
-            max_deg = (
-                max(graph.degree(v) for v in range(graph.n))
-                if graph.n else 0
-            )
+            max_deg = max(graph.degree(v) for v in range(graph.n)) if graph.n else 0
             raise RuntimeError(
                 f"Unable to color graph with {max_colors} colours "
                 f"(delta={delta}, max_degree={max_deg})."
