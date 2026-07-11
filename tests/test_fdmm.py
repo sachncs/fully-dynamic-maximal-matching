@@ -24,6 +24,7 @@ from fdmm.z_system import MultiLevelSystem, ZSubgraphSystem, build_z_system
 # Graph layer
 # ------------------------------------------------------------------
 
+
 class TestDynamicGraph:
     """Tests for :class:`fdmm.graph.DynamicGraph`."""
 
@@ -173,6 +174,7 @@ class TestDynamicGraph:
 # Edge colouring
 # ------------------------------------------------------------------
 
+
 class TestEdgeColoring:
     """Tests for :mod:`fdmm.edge_coloring`."""
 
@@ -290,6 +292,7 @@ class TestEdgeColoring:
 # Matching helpers
 # ------------------------------------------------------------------
 
+
 class TestMatchingHelpers:
     """Tests for :mod:`fdmm.matching`."""
 
@@ -321,6 +324,7 @@ class TestMatchingHelpers:
 # ------------------------------------------------------------------
 # z-Subgraph system
 # ------------------------------------------------------------------
+
 
 class TestZSubgraphSystem:
     """Tests for :class:`fdmm.z_system.ZSubgraphSystem`."""
@@ -432,6 +436,7 @@ class TestZSubgraphSystem:
 # z-System construction
 # ------------------------------------------------------------------
 
+
 class TestBuildZSystem:
     """Tests for :func:`fdmm.z_system.build_z_system`."""
 
@@ -480,6 +485,7 @@ class TestBuildZSystem:
 # ------------------------------------------------------------------
 # Dynamic maximal matching algorithm
 # ------------------------------------------------------------------
+
 
 class TestDynamicMaximalMatching:
     """End-to-end tests for :class:`fdmm.dynamic_matching.DynamicMaximalMatching`."""
@@ -802,6 +808,7 @@ class TestDynamicMaximalMatching:
         algo.rebuild_basic()
         # Monkey-patch abb_edge_color to return an invalid color.
         import fdmm.dynamic_matching as dm
+
         original_color = dm.abb_edge_color
 
         def bad_color(graph, delta):
@@ -818,6 +825,7 @@ class TestDynamicMaximalMatching:
 # ------------------------------------------------------------------
 # Multi-level system
 # ------------------------------------------------------------------
+
 
 class TestMultiLevelSystem:
     """Tests for :class:`fdmm.z_system.MultiLevelSystem`."""
@@ -857,6 +865,7 @@ class TestMultiLevelSystem:
 # Simulation utilities
 # ------------------------------------------------------------------
 
+
 class TestSimulation:
     """Tests for :mod:`fdmm.simulation`."""
 
@@ -879,6 +888,7 @@ class TestSimulation:
 # ------------------------------------------------------------------
 # Performance sanity checks
 # ------------------------------------------------------------------
+
 
 class TestPerformance:
     """Lightweight performance sanity checks."""

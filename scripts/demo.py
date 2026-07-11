@@ -71,7 +71,10 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="FDMM Demo")
     parser.add_argument("--n", type=int, default=20, help="Number of vertices")
     parser.add_argument(
-        "--mode", choices=["basic", "multilevel"], default="basic", help="Algorithm mode"
+        "--mode",
+        choices=["basic", "multilevel"],
+        default="basic",
+        help="Algorithm mode",
     )
     parser.add_argument(
         "--updates", type=int, default=200, help="Number of update operations"
