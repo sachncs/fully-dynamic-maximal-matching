@@ -7,6 +7,7 @@
     <a href="https://github.com/sachncs/fully-dynamic-maximal-matching/actions"><img src="https://img.shields.io/github/actions/workflow/status/sachncs/fully-dynamic-maximal-matching/ci.yml?branch=master" alt="CI"></a>
     <a href="https://github.com/sachncs/fully-dynamic-maximal-matching"><img src="https://img.shields.io/badge/arXiv-2605.00797v1-b31b1b" alt="arXiv"></a>
     <a href="https://mypy-lang.org/"><img src="https://img.shields.io/badge/mypy-strict-green.svg" alt="Checked with mypy"></a>
+    <a href="https://github.com/sachncs/fully-dynamic-maximal-matching/stargazers"><img src="https://img.shields.io/github/stars/sachncs/fully-dynamic-maximal-matching" alt="Stars"></a>
   </p>
 </p>
 
@@ -255,6 +256,24 @@ fdmm/
 
 ---
 
+## Testing
+
+```bash
+pytest                          # run the full suite
+pytest -k invariants            # invariant checkers only
+pytest --cov=fdmm tests/        # coverage report
+```
+
+---
+
+## Build
+
+```bash
+python -m build                 # sdist + wheel
+```
+
+---
+
 ## Development
 
 ```bash
@@ -300,6 +319,14 @@ refactor: convert semi-private helpers to public API
 test: add parity tests for cached vs streamed memory
 chore: update ruff config
 ```
+
+---
+
+## Release
+
+Versions follow [Semantic Versioning](https://semver.org/). Releases are tagged
+via `version:X.Y.Z` commits in [CHANGELOG.md](CHANGELOG.md) and published to
+PyPI via the CI workflow.
 
 ---
 
