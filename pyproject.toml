@@ -35,10 +35,10 @@ classifiers = [
     "Typing :: Typed",
 ]
 [project.urls]
-Homepage = "https://github.com/sachn-cs/fully-dynamic-maximal-matching"
-Repository = "https://github.com/sachn-cs/fully-dynamic-maximal-matching"
-Issues = "https://github.com/sachn-cs/fully-dynamic-maximal-matching/issues"
-Changelog = "https://github.com/sachn-cs/fully-dynamic-maximal-matching/blob/master/CHANGELOG.md"
+Homepage = "https://github.com/sachncs/fully-dynamic-maximal-matching"
+Repository = "https://github.com/sachncs/fully-dynamic-maximal-matching"
+Issues = "https://github.com/sachncs/fully-dynamic-maximal-matching/issues"
+Changelog = "https://github.com/sachncs/fully-dynamic-maximal-matching/blob/master/CHANGELOG.md"
 
 [project.optional-dependencies]
 dev = [

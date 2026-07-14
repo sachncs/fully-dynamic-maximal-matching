@@ -5,7 +5,7 @@
 FDMM is a Python reproduction of *"A Faster Deterministic Algorithm for
 Fully Dynamic Maximal Matching"* (arXiv:2605.00797v1).
 
-Repository: `https://github.com/sachn-cs/fully-dynamic-maximal-matching`
+Repository: `https://github.com/sachncs/fully-dynamic-maximal-matching`
 
 ## Modules
 

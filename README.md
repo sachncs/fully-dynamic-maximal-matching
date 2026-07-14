@@ -4,8 +4,8 @@
   <p align="center">
     <a href="#installation"><img src="https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12%20%7C%203.13-blue" alt="Python"></a>
     <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="License"></a>
-    <a href="https://github.com/sachn-cs/fully-dynamic-maximal-matching/actions"><img src="https://img.shields.io/github/actions/workflow/status/sachn-cs/fully-dynamic-maximal-matching/ci.yml?branch=master" alt="CI"></a>
-    <a href="https://github.com/sachn-cs/fully-dynamic-maximal-matching"><img src="https://img.shields.io/badge/arXiv-2605.00797v1-b31b1b" alt="arXiv"></a>
+    <a href="https://github.com/sachncs/fully-dynamic-maximal-matching/actions"><img src="https://img.shields.io/github/actions/workflow/status/sachncs/fully-dynamic-maximal-matching/ci.yml?branch=master" alt="CI"></a>
+    <a href="https://github.com/sachncs/fully-dynamic-maximal-matching"><img src="https://img.shields.io/badge/arXiv-2605.00797v1-b31b1b" alt="arXiv"></a>
     <a href="https://mypy-lang.org/"><img src="https://img.shields.io/badge/mypy-strict-green.svg" alt="Checked with mypy"></a>
   </p>
 </p>
@@ -50,7 +50,7 @@ graph under online edge insertions and deletions in amortised
 ### From source
 
 ```bash
-git clone https://github.com/sachn-cs/fully-dynamic-maximal-matching.git
+git clone https://github.com/sachncs/fully-dynamic-maximal-matching.git
 cd fully-dynamic-maximal-matching
 pip install -e .
 ```

@@ -116,7 +116,7 @@ chore: update pytest to 8.x
 
 1. **Update your fork** to the latest upstream:
    ```bash
-   git remote add upstream https://github.com/sachn-cs/fully-dynamic-maximal-matching.git
+   git remote add upstream https://github.com/sachncs/fully-dynamic-maximal-matching.git
    git fetch upstream
    git checkout master
    git merge upstream/master
@@ -253,4 +253,4 @@ The test suite includes Hypothesis-based property tests. These run automatically
 
 ## Questions?
 
-If you have questions about contributing, feel free to open a [Discussion](https://github.com/sachn-cs/fully-dynamic-maximal-matching/discussions) or reach out to the maintainers.
+If you have questions about contributing, feel free to open a [Discussion](https://github.com/sachncs/fully-dynamic-maximal-matching/discussions) or reach out to the maintainers.

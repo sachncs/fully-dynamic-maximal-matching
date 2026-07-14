@@ -13,7 +13,7 @@ This guide walks you through installing and running FDMM for the first time.
 ### Option 1: Install from Source (Recommended)
 
 ```bash
-git clone https://github.com/sachn-cs/fully-dynamic-maximal-matching.git
+git clone https://github.com/sachncs/fully-dynamic-maximal-matching.git
 cd fully-dynamic-maximal-matching
 pip install -e ".[dev]"
 ```
@@ -21,7 +21,7 @@ pip install -e ".[dev]"
 ### Option 2: Virtual Environment (Recommended for Development)
 
 ```bash
-git clone https://github.com/sachn-cs/fully-dynamic-maximal-matching.git
+git clone https://github.com/sachncs/fully-dynamic-maximal-matching.git
 cd fully-dynamic-maximal-matching
 python -m venv .venv
 source .venv/bin/activate   # Linux / macOS
